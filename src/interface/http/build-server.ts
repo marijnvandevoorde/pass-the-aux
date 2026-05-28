@@ -434,6 +434,19 @@ export function buildServer(
       sendJson(res, 200, { ok: true });
     },
 
+    "POST /api/auth/skip-mfa": async (req, res, _url, ctx) => {
+      const b = (await readJsonBody(req, config.bodyLimitBytes)) as {
+        username?: string;
+        password?: string;
+      };
+      const token = await auth.skipMfa(
+        b?.username ?? "",
+        b?.password ?? "",
+      );
+      setSessionCookie(res, token);
+      sendJson(res, 200, { ok: true });
+    },
+
     "POST /api/auth/login": async (req, res, _url, ctx) => {
       const b = (await readJsonBody(req, config.bodyLimitBytes)) as {
         username?: string;

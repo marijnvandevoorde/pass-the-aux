@@ -83,6 +83,43 @@ test("a recovery code logs in once then is spent", async () => {
   await assert.rejects(() => a.login("deejay", "supersecret", rc), /code/);
 });
 
+test("skipMfa allows password-only login; re-skip is idempotent", async () => {
+  const a = new AuthService(new FakeUsers(), SECRET);
+  const e = await a.register("deejay", "supersecret");
+
+  // Still in pre-enrollment state — skip is allowed.
+  const token = await a.skipMfa("deejay", "supersecret");
+  assert.ok(await a.userFromToken(token));
+
+  // Now login works with empty code.
+  const t2 = await a.login("deejay", "supersecret", "");
+  assert.ok(await a.userFromToken(t2));
+
+  // Calling skip again is fine (totpSecret already null).
+  const t3 = await a.skipMfa("deejay", "supersecret");
+  assert.ok(await a.userFromToken(t3));
+
+  // Cannot skip once MFA is fully enrolled.
+  const b = new AuthService(new FakeUsers(), SECRET);
+  const eb = await b.register("dj2", "supersecret");
+  await b.confirmTotp("dj2", "supersecret", totp(eb.secret));
+  await assert.rejects(
+    () => b.skipMfa("dj2", "supersecret"),
+    /already active/,
+  );
+  void e; // suppress unused-var warning (secret not used here)
+});
+
+test("login with MFA skipped ignores any code value", async () => {
+  const a = new AuthService(new FakeUsers(), SECRET);
+  await a.register("deejay", "supersecret");
+  await a.skipMfa("deejay", "supersecret");
+
+  // Any code value (including garbage) is accepted when MFA is skipped.
+  assert.ok(await a.userFromToken(await a.login("deejay", "supersecret", "")));
+  assert.ok(await a.userFromToken(await a.login("deejay", "supersecret", "999999")));
+});
+
 test("userFromToken rejects junk / unconfigured", async () => {
   const a = new AuthService(new FakeUsers(), SECRET);
   assert.equal(await a.userFromToken(undefined), null);

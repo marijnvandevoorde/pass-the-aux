@@ -97,6 +97,19 @@
         margin: 8px 0;
       }
       .hint { font-size: 12px; color: var(--dim); margin: 10px 0 0; }
+      button.ghost {
+        width: 100%;
+        margin-top: 10px;
+        padding: 11px;
+        font-size: 13px;
+        font-weight: 500;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--dim);
+        cursor: pointer;
+      }
+      button.ghost:hover { color: var(--ink); border-color: var(--dim); }
     </style>
   </head>
   <body>
@@ -110,8 +123,8 @@
         <input id="li-user" autocomplete="username" autocapitalize="off" spellcheck="false" />
         <label for="li-pass">Password</label>
         <input id="li-pass" type="password" autocomplete="current-password" />
-        <label for="li-code">6-digit code (or a recovery code)</label>
-        <input id="li-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        <label for="li-code">Authenticator code <span style="font-weight:400;opacity:.6">(leave blank if you skipped MFA)</span></label>
+        <input id="li-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456 or recovery code" />
         <button class="primary" id="li-go">Sign in</button>
         <div class="msg" id="li-msg"></div>
         <p class="switch" id="register-switch" hidden>No account? <a id="to-register">Create one</a></p>
@@ -140,6 +153,7 @@
         <label for="en-code">Enter the 6-digit code to finish</label>
         <input id="en-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
         <button class="primary" id="en-go">Verify &amp; enter</button>
+        <button class="ghost" id="en-skip">Yolo, no MFA for me!</button>
         <div class="msg" id="en-msg"></div>
       </section>
     </div>

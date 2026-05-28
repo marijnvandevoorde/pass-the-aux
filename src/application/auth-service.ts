@@ -99,17 +99,27 @@ export class AuthService {
     return this.#issue(user.id);
   }
 
-  /** Password + (TOTP code | recovery code) → session token. */
+  /** Password + (TOTP code | recovery code) → session token.
+   *  Accounts that skipped MFA (totpSecret is null) log in with
+   *  password only — `code` is ignored in that case. */
   async login(
     username: string,
     password: string,
     code: string,
   ): Promise<string> {
     const user = await this.#authUser(username, password);
-    if (!user.totpEnabled || !user.totpSecret) {
+
+    // MFA deliberately skipped: password is enough.
+    if (!user.totpEnabled && user.totpSecret === null) {
+      return this.#issue(user.id);
+    }
+
+    // Account registered but enrollment not yet completed.
+    if (!user.totpEnabled) {
       throw new UnauthorizedError("finish 2FA setup before logging in");
     }
-    if (verifyTotp(user.totpSecret, code)) return this.#issue(user.id);
+
+    if (verifyTotp(user.totpSecret!, code)) return this.#issue(user.id);
 
     // Fall back to a one-time recovery code.
     const remaining = await consumeRecoveryCode(
@@ -121,6 +131,20 @@ export class AuthService {
       return this.#issue(user.id);
     }
     throw new UnauthorizedError("incorrect code");
+  }
+
+  /** Skip MFA entirely: clears the TOTP secret so subsequent logins
+   *  only require a password. Only valid before enrollment is confirmed
+   *  (totpEnabled === false). */
+  async skipMfa(username: string, password: string): Promise<string> {
+    const user = await this.#authUser(username, password);
+    if (user.totpEnabled) {
+      throw new UnauthorizedError("MFA is already active on this account");
+    }
+    if (user.totpSecret !== null) {
+      await this.#users.update({ ...user, totpSecret: null });
+    }
+    return this.#issue(user.id);
   }
 
   /** Resolve a session-cookie token to the current user, or null. */

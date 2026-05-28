@@ -156,3 +156,22 @@ $<HTMLButtonElement>("#en-go").addEventListener("click", async () => {
     msg("#en-msg", String(r.data.error ?? "verification failed"));
   }
 });
+
+$<HTMLButtonElement>("#en-skip").addEventListener("click", async () => {
+  if (!pending) {
+    show("register");
+    return;
+  }
+  const btn = $<HTMLButtonElement>("#en-skip");
+  btn.disabled = true;
+  const r = await postJson("/api/auth/skip-mfa", {
+    username: pending.username,
+    password: pending.password,
+  });
+  btn.disabled = false;
+  if (r.ok) {
+    enterApp();
+  } else {
+    msg("#en-msg", String(r.data.error ?? "skip failed"));
+  }
+});
