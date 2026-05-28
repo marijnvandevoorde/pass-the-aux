@@ -12,6 +12,15 @@ Full TypeScript, layered/DDD, **near-zero runtime dependencies**: Node
 runs the server `.ts` directly via native type-stripping. The browser
 bundle is the only build step.
 
+## Demo
+Limited demo at
+https://passtheaux.small-victories.co
+username: demo
+password: demodemo
+
+Limtations: you can't add songs, you can't connect remotes. you can just play with it and use the 3 songs in the library. 
+One fun thing: you can drag a song on your local drive to Deck A. I'll see if I can fix so  you can add it to both decks, the library, and the queue as well. Keep in mind that this will not do decent beat analysis and files will not be stored
+
 ## Features
 
 - **Local library** — point it at any folder of audio files
