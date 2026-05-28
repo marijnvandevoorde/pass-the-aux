@@ -234,7 +234,9 @@
         position: fixed;
         left: 50%;
         bottom: 22px;
-        transform: translate(-50%, 140%);
+        transform: translate(-50%, 0);
+        visibility: hidden;
+        opacity: 0;
         background: var(--ok);
         color: #04130d;
         font-weight: 600;
@@ -242,7 +244,8 @@
         border-radius: 999px;
         max-width: 90vw;
         text-align: center;
-        transition: transform 0.22s ease;
+        /* visibility hidden is delayed so the fade-out plays before disappearing */
+        transition: opacity 0.22s ease, visibility 0s linear 0.22s;
         box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
       }
       #toast[data-kind="warn"] {
@@ -250,7 +253,9 @@
         color: #1c1500;
       }
       #toast.show {
-        transform: translate(-50%, 0);
+        visibility: visible;
+        opacity: 1;
+        transition: opacity 0.22s ease, visibility 0s linear 0s;
       }
     </style>
   </head>
