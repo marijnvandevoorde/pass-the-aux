@@ -14,8 +14,8 @@ bundle is the only build step.
 
 ## Demo
 Limited demo at
-https://passtheaux.small-victories.co
-username: demo
+https://passtheaux.small-victories.co.
+username: demo,
 password: demodemo
 
 Limtations: you can't add songs, you can't connect remotes. you can just play with it and use the 3 songs in the library. 
