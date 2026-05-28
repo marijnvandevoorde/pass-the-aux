@@ -77,19 +77,42 @@ select {
 }
 
 #start-btn {
-  font-size: 22px;
-  padding: 16px 36px;
-  border-radius: 12px;
-  border: 1px solid #5fffe0;
-  background: linear-gradient(180deg, #4dffdf, #16c9a6);
-  color: var(--accent-deep);
-  font-weight: 800;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 30px rgba(56, 224, 196, 0.45), var(--inset);
+  line-height: 0;
+  animation: start-pulse 1.8s ease-in-out infinite;
+}
+
+#start-btn img {
+  display: block;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
 }
 
 #start-btn:active {
-  transform: translateY(1px);
+  transform: scale(0.97);
+}
+
+@keyframes start-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(56, 224, 196, 0.55);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 40px 14px rgba(56, 224, 196, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #start-btn {
+    animation: none;
+  }
 }
 
 /* ---- header ----------------------------------------------------------- */
@@ -107,11 +130,19 @@ header {
 }
 
 header .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: 4px;
   color: var(--accent);
   text-shadow: 0 0 14px rgba(56, 224, 196, 0.45);
+}
+
+header .brand-logo {
+  height: 30px;
+  width: 30px;
 }
 
 #status {
@@ -226,6 +257,14 @@ header .master input[type="range"] {
   color: var(--accent-deep);
   font-weight: 700;
   border-color: #5fffe0;
+}
+
+/* The ⚙ glyph renders small at the base button font-size; bump it so it
+   fills the button like the other header controls. */
+#settings-open {
+  font-size: 18px;
+  line-height: 1;
+  padding: 5px 11px;
 }
 
 /* QR popover under the Share button — not always on screen. */
@@ -1648,45 +1687,38 @@ select.r-q {
   color: var(--warn);
 }
 
-/* ---- settings modal --------------------------------------------------- */
+/* ---- settings (full page, not a modal) -------------------------------- */
 
-.modal-bg {
+.settings-page {
   position: fixed;
   inset: 0;
   z-index: 90;
   display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(3, 4, 8, 0.74);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-
-.modal-bg.open {
-  display: flex;
-}
-
-.modal {
-  width: min(470px, 93vw);
-  max-height: 88vh;
+  flex-direction: column;
   overflow: auto;
-  background: var(--panel-grad);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.75), var(--inset);
+  background: linear-gradient(180deg, #0c0e16, #07080d);
 }
 
-.modal-head {
+.settings-page.open {
+  display: flex;
+}
+
+.settings-page-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 15px 18px;
+  gap: 16px;
+  padding: 13px 22px;
   border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #161a28, #0c0e16);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
 }
 
-.modal-head h2 {
+.settings-page-head h2 {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 2px;
   color: var(--accent);
   font-weight: 900;
@@ -1694,17 +1726,20 @@ select.r-q {
 }
 
 #settings-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--dim);
 }
 
-.modal-body {
-  padding: 17px 18px;
+#settings-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.settings-page-body {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 28px 22px 56px;
 }
 
 #cuebar {

@@ -916,24 +916,21 @@ function wireGlobal(): void {
   fxToggle.onclick = () => setFxOpen(!fxPanelEl.classList.contains("open"));
   must<HTMLButtonElement>("#fx-close").onclick = () => setFxOpen(false);
 
-  // Settings modal — output devices, cue levels and the mic-access
+  // Settings full page — output devices, cue levels and the mic-access
   // prompt live here (moved out of the header to keep it uncluttered).
   // setupCue() still wires the controls inside by id, wherever they sit.
-  const settingsModal = must<HTMLElement>("#settings-modal");
-  const closeSettings = (): void => settingsModal.classList.remove("open");
-  // Remote record stores live in the same modal. Any change there can
+  const settingsPage = must<HTMLElement>("#settings-page");
+  const closeSettings = (): void => settingsPage.classList.remove("open");
+  // Remote record stores live on the same page. Any change there can
   // flip `remoteEnabled`, so we re-probe /api/remote-status afterwards.
   const remoteStoresUi = new RemoteStoresSettings(() => {
     void initRemote();
   });
   must<HTMLButtonElement>("#settings-open").onclick = () => {
-    settingsModal.classList.add("open");
+    settingsPage.classList.add("open");
     void remoteStoresUi.ensureLoaded();
   };
   must<HTMLButtonElement>("#settings-close").onclick = closeSettings;
-  settingsModal.addEventListener("click", (e) => {
-    if (e.target === settingsModal) closeSettings();
-  });
 
   // master-mix recorder. The post-limiter tap is always live;
   // the button just toggles a MediaRecorder over it and hands the
@@ -982,7 +979,7 @@ function wireGlobal(): void {
   // library filters — whichever is currently showing.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (settingsModal.classList.contains("open")) closeSettings();
+    if (settingsPage.classList.contains("open")) closeSettings();
     else if (fxPanelEl.classList.contains("open")) setFxOpen(false);
     else clearLibraryFilters();
   });

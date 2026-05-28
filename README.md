@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="passtheaux.png" alt="Pass the Aux" width="180" />
+</p>
+
 # Pass the Aux
 
 A small-party DJ mixer for the rest of us — two browser decks, a curated

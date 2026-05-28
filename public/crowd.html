@@ -8,6 +8,8 @@
     />
     <meta name="theme-color" content="#0b0b12" />
     <title>Request a track</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -34,6 +36,14 @@
         padding: 20px 16px 12px;
         text-align: center;
       }
+      header .brand-logo {
+        width: 64px;
+        height: 64px;
+        display: block;
+        margin: 0 auto 10px;
+        border-radius: 16px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      }
       header h1 {
         margin: 0;
         font-size: 22px;
@@ -43,6 +53,37 @@
         margin: 6px 0 0;
         color: var(--dim);
         font-size: 14px;
+      }
+      .powered {
+        margin-top: 32px;
+        text-align: center;
+      }
+      .powered a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--dim);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-decoration: none;
+        transition: color 0.15s ease, border-color 0.15s ease;
+      }
+      .powered a:hover {
+        color: var(--ink);
+        border-color: var(--accent);
+      }
+      .powered img {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+      }
+      .powered strong {
+        color: var(--accent);
+        font-weight: 700;
       }
       #status[data-kind="warn"] {
         color: var(--warn);
@@ -215,7 +256,8 @@
   </head>
   <body>
     <header>
-      <h1>🎶 Request a track</h1>
+      <img class="brand-logo" src="/logo.png" alt="Pass the Aux" />
+      <h1>Request a track</h1>
       <p id="status" data-kind="ok">Connecting…</p>
     </header>
     <div class="wrap">
@@ -242,6 +284,16 @@
           </div>
         </section>
       </div>
+      <footer class="powered">
+        <a
+          href="https://github.com/marijnvandevoorde/pass-the-aux"
+          target="_blank"
+          rel="noopener"
+        >
+          <img src="/logo.png" alt="" />
+          Powered by <strong>Pass&nbsp;the&nbsp;Aux</strong>
+        </a>
+      </footer>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="modal" role="dialog" aria-modal="true" aria-labelledby="m-title">

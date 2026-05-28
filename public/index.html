@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pass the Aux</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="stylesheet" href="styles.css?v={{APP_VERSION}}" />
   </head>
   <body>
@@ -11,12 +13,17 @@
     <audio id="master-audio" hidden></audio>
 
     <div id="start-overlay">
-      <button id="start-btn">▶ Start Pass the Aux</button>
+      <button id="start-btn" aria-label="Start Pass the Aux">
+        <img src="/logo.png" alt="" />
+      </button>
       <p>Audio needs a click to begin (browser requirement).</p>
     </div>
 
     <header>
-      <div class="brand">PASS&nbsp;THE&nbsp;AUX</div>
+      <div class="brand">
+        <img class="brand-logo" src="/logo.png" alt="" />
+        <span>PASS&nbsp;THE&nbsp;AUX</span>
+      </div>
       <div id="status">loading library…</div>
 
       <div id="session-ctl">
@@ -316,14 +323,13 @@
       </div>
     </section>
 
-    <div id="settings-modal" class="modal-bg">
-      <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
-        <div class="modal-head">
-          <h2>⚙ SETTINGS</h2>
-          <button id="settings-close" type="button" title="Close settings" aria-label="Close settings">×</button>
-        </div>
-        <div class="modal-body">
-          <div id="cuebar">
+    <div id="settings-page" class="settings-page" role="region" aria-label="Settings">
+      <header class="settings-page-head">
+        <button id="settings-close" type="button" title="Back to the mixer" aria-label="Back to the mixer">‹ Back</button>
+        <h2>⚙ SETTINGS</h2>
+      </header>
+      <div class="settings-page-body">
+        <div id="cuebar">
             <div class="set-group">
               <h3>Audio output</h3>
               <p class="set-moved">Moved here from the header to keep the top bar uncluttered.</p>
@@ -413,7 +419,7 @@
           </div>
         </div>
       </div>
-    </div>
+    <!-- /#settings-page -->
 
     <script type="module" src="js/app.js?v={{APP_VERSION}}"></script>
   </body>

@@ -5,6 +5,7 @@ const MIME: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".flac": "audio/flac",
