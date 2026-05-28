@@ -1,0 +1,23 @@
+# Dependabot configuration for the pass-the-aux repo.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Dependabot opens PRs automatically on the schedule below.
+# Minor + patch updates are grouped into a single PR per ecosystem and are
+# auto-merged by .github/workflows/dependabot-auto-merge.yml once checks pass.
+# Major updates are intentionally left ungrouped: each gets its own PR for
+# manual review and is not auto-merged.
+version: 2
+updates:
+  # JavaScript / Node.js dependencies (package.json + package-lock.json at the repo root).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

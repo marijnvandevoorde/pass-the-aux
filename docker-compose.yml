@@ -1,0 +1,63 @@
+# Pass the Aux — dev stack.
+#
+# Brings up just the mixer (host-published on $PORT) on a shared bridge
+# network named `pta`. The optional companion projects join the same
+# network from their own compose files — see the README → Docker →
+# Running with companions.
+#
+#   docker compose up --build           # http://localhost:5174
+#
+# Companions reach the mixer (and vice-versa) by container name. Add a
+# remote record store via Settings → Remote record stores once it's up.
+#   - pass-the-remote  ← https://github.com/marijnvandevoorde/pass-the-remote
+#   - pass-the-beat       ← https://github.com/marijnvandevoorde/pass-the-beat
+
+services:
+  pass-the-aux:
+    build:
+      context: .
+      args:
+        # Bake the git SHA into the image. The Dockerfile copies this
+        # to runtime ENV; the server reads it on boot and stamps the
+        # SPA's footer + script URL.
+        #   APP_VERSION=$(git rev-parse --short HEAD) docker compose up --build
+        APP_VERSION: ${APP_VERSION:-}
+    image: pass-the-aux
+    container_name: pass-the-aux
+    ports:
+      - "${PORT:-5174}:5174"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5174
+      - MUSIC_DIR=/app/music
+      # SQLite DB lives in /data (host-bound below), NOT inside MUSIC_DIR
+      # — keeps the audio folder clean and easy to back up separately.
+      - SQLITE_PATH=/data/pass-the-aux.sqlite
+      - PUBLIC_BASE_URL
+      - STORAGE_DRIVER
+      - DB_HOST
+      - DB_PORT
+      - DB_NAME
+      - DB_USER
+      - DB_PASSWORD
+      - SESSION_SECRET
+      - REGISTRATION_OPEN
+      # `local` (default) uses the in-browser/ffmpeg BPM detector.
+      # `pass-the-beat` routes to the sidecar at $PASS_THE_BEAT_URL.
+      - BEAT_ANALYZER
+      - PASS_THE_BEAT_URL=${PASS_THE_BEAT_URL:-http://pass-the-beat:8000}
+    volumes:
+      - ${MUSIC_HOST_DIR:-./../music}:/app/music
+      - ${DATA_HOST_DIR:-./../data}:/data
+    restart: unless-stopped
+    networks:
+      - pta
+
+networks:
+  # Shared bridge created by this stack; companion compose projects
+  # declare `pta` as an external network so they can resolve each other
+  # by container name. Not `internal: true` — services still need
+  # outbound (cover-art lookups, AcousticBrainz, etc.).
+  pta:
+    name: pta
+    driver: bridge

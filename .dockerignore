@@ -1,0 +1,8 @@
+node_modules
+.git
+.env
+test
+public/js
+**/*.map
+Dockerfile
+docker-compose.yml

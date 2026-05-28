@@ -1,0 +1,39 @@
+# Standalone dev MySQL — deliberately NOT part of the main
+# docker-compose.yml. Most setups already run a MySQL; this is just a
+# quick local one for development. Credentials come from .env
+# (gitignored) — never hard-code them here.
+#
+#   docker compose -f docker-compose.mysql.yml up -d     # start
+#   docker compose -f docker-compose.mysql.yml down       # stop
+#   docker compose -f docker-compose.mysql.yml down -v    # + wipe data
+#
+# The app connects via DB_HOST/DB_PORT (default 127.0.0.1:3307). The
+# host port is DB_HOST_PORT so it won't clash with an existing 3306.
+
+# Own project name so it never treats the main pass-the-aux container as
+# an orphan (and vice-versa).
+name: pass-the-aux-db
+
+services:
+  pass-the-aux-mysql:
+    image: mysql:8.4
+    container_name: pass-the-aux-mysql
+    command: --innodb-buffer-pool-size=64M
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}"
+      MYSQL_DATABASE: "${DB_NAME:-passtheaux}"
+      MYSQL_USER: "${DB_USER:?set DB_USER in .env}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD in .env}"
+    ports:
+      - "${DB_HOST_PORT:-3307}:3306"
+    volumes:
+      - ${DB_DATA_HOST_DIR:-./../dbdata}:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:

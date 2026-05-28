@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b12" />
+    <title>Pass the Aux — sign in</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0b12;
+        --card: #16161f;
+        --line: #2a2a38;
+        --ink: #f3f3fa;
+        --dim: #9a9ab0;
+        --accent: #38e0c4;
+        --warn: #ffcf5c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 26px;
+        width: 100%;
+        max-width: 380px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+        letter-spacing: 3px;
+        color: var(--accent);
+      }
+      p.sub { margin: 0 0 18px; color: var(--dim); font-size: 13px; }
+      label { display: block; font-size: 12px; color: var(--dim); margin: 12px 0 4px; }
+      input {
+        width: 100%;
+        padding: 11px 12px;
+        font-size: 15px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #0f0f17;
+        color: var(--ink);
+      }
+      input:focus { outline: 2px solid var(--accent); }
+      button.primary {
+        width: 100%;
+        margin-top: 18px;
+        padding: 12px;
+        font-size: 15px;
+        font-weight: 700;
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #04201b;
+        cursor: pointer;
+      }
+      button.primary:disabled { opacity: 0.5; cursor: default; }
+      .switch { margin-top: 16px; text-align: center; font-size: 13px; color: var(--dim); }
+      .switch a { color: var(--accent); cursor: pointer; }
+      .msg { margin-top: 14px; font-size: 13px; min-height: 18px; }
+      .msg.err { color: var(--warn); }
+      .msg.ok { color: var(--accent); }
+      [hidden] { display: none !important; }
+      canvas { background: #fff; border-radius: 8px; display: block; margin: 12px auto; }
+      .secret {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 13px;
+        word-break: break-all;
+        background: #0f0f17;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px;
+        color: var(--accent);
+      }
+      .codes {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 13px;
+        columns: 2;
+        background: #0f0f17;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin: 8px 0;
+      }
+      .hint { font-size: 12px; color: var(--dim); margin: 10px 0 0; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>DJ&nbsp;MIXER</h1>
+
+      <!-- Sign in -->
+      <section id="panel-login">
+        <p class="sub">Sign in to your booth.</p>
+        <label for="li-user">Username</label>
+        <input id="li-user" autocomplete="username" autocapitalize="off" spellcheck="false" />
+        <label for="li-pass">Password</label>
+        <input id="li-pass" type="password" autocomplete="current-password" />
+        <label for="li-code">6-digit code (or a recovery code)</label>
+        <input id="li-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        <button class="primary" id="li-go">Sign in</button>
+        <div class="msg" id="li-msg"></div>
+        <p class="switch" id="register-switch" hidden>No account? <a id="to-register">Create one</a></p>
+      </section>
+
+      <!-- Register -->
+      <section id="panel-register" hidden>
+        <p class="sub">Create your account.</p>
+        <label for="rg-user">Username</label>
+        <input id="rg-user" autocomplete="username" autocapitalize="off" spellcheck="false" />
+        <label for="rg-pass">Password (min 8 chars)</label>
+        <input id="rg-pass" type="password" autocomplete="new-password" />
+        <button class="primary" id="rg-go">Create account</button>
+        <div class="msg" id="rg-msg"></div>
+        <p class="switch">Have an account? <a id="to-login">Sign in</a></p>
+      </section>
+
+      <!-- Enroll 2FA -->
+      <section id="panel-enroll" hidden>
+        <p class="sub">Scan this with your authenticator app.</p>
+        <canvas id="qr" width="180" height="180"></canvas>
+        <p class="hint">Or enter this key manually:</p>
+        <div class="secret" id="enroll-secret"></div>
+        <p class="hint">Save these recovery codes somewhere safe — each works once if you lose your authenticator:</p>
+        <div class="codes" id="enroll-codes"></div>
+        <label for="en-code">Enter the 6-digit code to finish</label>
+        <input id="en-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        <button class="primary" id="en-go">Verify &amp; enter</button>
+        <div class="msg" id="en-msg"></div>
+      </section>
+    </div>
+    <script type="module" src="js/login.js"></script>
+  </body>
+</html>

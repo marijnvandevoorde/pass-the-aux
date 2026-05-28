@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pass the Aux</title>
+    <link rel="stylesheet" href="styles.css?v={{APP_VERSION}}" />
+  </head>
+  <body>
+    <audio id="cue-audio" hidden></audio>
+    <audio id="master-audio" hidden></audio>
+
+    <div id="start-overlay">
+      <button id="start-btn">▶ Start Pass the Aux</button>
+      <p>Audio needs a click to begin (browser requirement).</p>
+    </div>
+
+    <header>
+      <div class="brand">PASS&nbsp;THE&nbsp;AUX</div>
+      <div id="status">loading library…</div>
+
+      <div id="session-ctl">
+        <label for="session-id">SESSION</label>
+        <input
+          id="session-id"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          maxlength="32"
+          title="Guest-join session id — edit any time; the QR updates"
+          placeholder="session id"
+        />
+        <button id="session-share" title="Show the crowd-join QR / link">
+          ⧉ Share
+        </button>
+        <div id="sessionqr" hidden>
+          <canvas id="qr-canvas" width="160" height="160"></canvas>
+          <div>
+            <p>Scan to add songs to the queue:</p>
+            <a id="qr-url" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+      </div>
+
+      <div id="topright">
+        <div class="master">
+          <label>MASTER</label>
+          <input id="master" type="range" min="0" max="1" step="0.01" value="0.9" />
+          <span class="meter" id="master-meter"><i></i></span>
+        </div>
+        <button id="rec-toggle" title="Record the master mix to a downloadable file">● REC</button>
+        <button id="fx-toggle" title="Show/hide the FX panel">FX ▸</button>
+        <button id="settings-open" title="Output, headphone &amp; microphone settings">⚙</button>
+        <a id="logout" href="/logout" title="Sign out">⎋</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="deck" data-deck="A">
+        <div class="deck-head">
+          <span class="badge">DECK A</span>
+          <span class="track-name">— no track —</span>
+        </div>
+        <div class="wave-wrap">
+          <canvas class="waveform" width="900" height="120"></canvas>
+          <div class="wave-glow"></div>
+        </div>
+        <div class="readouts">
+          <span class="bpm">
+            <span class="beat"></span>
+            <span class="bpm-num">—</span>
+            <span class="bpm-lbl">BPM</span>
+          </span>
+          <span class="time">0:00 / 0:00</span>
+          <span class="meter"><i></i></span>
+        </div>
+        <div class="transport">
+          <button class="cue" title="Set your start point (when paused), or jump back to it (when playing) — keyboard: C on the focused deck">CUE</button>
+          <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
+          <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
+          <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
+          <button class="nudge-down" title="Nudge / pitch-bend behind the beat">‹ NDG</button>
+          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat">NDG ›</button>
+          <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
+          <button class="eject" title="Eject / skip this deck">⏏</button>
+        </div>
+        <div class="perf">
+          <button class="loop-in">IN</button>
+          <button class="loop-out">OUT</button>
+          <button class="beatloop" data-beats="1">1</button>
+          <button class="beatloop" data-beats="2">2</button>
+          <button class="beatloop" data-beats="4">4</button>
+          <button class="beatloop" data-beats="8">8</button>
+          <button class="loop-toggle">LOOP</button>
+          <button class="loop-clear" title="Clear loop">✕</button>
+          <button class="keylock" title="Keylock — change tempo without pitch">KEY</button>
+        </div>
+        <div class="controls">
+          <div class="knob-wrap">
+            <div class="knob k-tempo" aria-label="Deck A tempo"><span class="knob-val"></span></div>
+            <label>TEMPO</label>
+          </div>
+          <div class="kdiv"></div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-high" aria-label="Deck A high EQ"><span class="knob-val"></span></div>
+            <label>HI</label>
+          </div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-mid" aria-label="Deck A mid EQ"><span class="knob-val"></span></div>
+            <label>MID</label>
+          </div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-low" aria-label="Deck A low EQ"><span class="knob-val"></span></div>
+            <label>LOW</label>
+          </div>
+          <div class="kdiv"></div>
+          <div class="knob-wrap">
+            <div class="knob k-vol" aria-label="Deck A channel volume"><span class="knob-val"></span></div>
+            <label>VOL</label>
+          </div>
+        </div>
+      </section>
+
+      <section class="crossfader">
+        <label title="Keyboard: ← / → to slide, Shift+← / Shift+→ for a hard cut. Focus a deck with 1 / 2.">CROSSFADER</label>
+        <input id="xfader" type="range" min="-1" max="1" step="0.01" value="0" />
+        <div class="xf-labels"><span>A</span><span>B</span></div>
+        <div class="xf-controls">
+          <button id="am-fade" title="Crossfade the two decks, snapped to the next beat or bar">⏭ Fade to next</button>
+          <input
+            id="am-secs"
+            type="number"
+            min="1"
+            max="30"
+            step="1"
+            value="8"
+            title="Fade duration (seconds)"
+            aria-label="Fade duration in seconds"
+          />
+          <div id="xf-snap" class="xf-snap" role="radiogroup" aria-label="Snap fade to">
+            <button type="button" data-snap="downbeat" class="on" aria-pressed="true" title="Wait for the next bar (4-beat boundary)">BAR</button>
+            <button type="button" data-snap="beat" aria-pressed="false" title="Wait for the next beat">BEAT</button>
+          </div>
+          <button id="am-beatsync" class="am-on" title="Tempo-match the incoming track before the fade">BEATSYNC: ON</button>
+        </div>
+      </section>
+
+      <section class="deck" data-deck="B">
+        <div class="deck-head">
+          <span class="badge">DECK B</span>
+          <span class="track-name">— no track —</span>
+        </div>
+        <div class="wave-wrap">
+          <canvas class="waveform" width="900" height="120"></canvas>
+          <div class="wave-glow"></div>
+        </div>
+        <div class="readouts">
+          <span class="bpm">
+            <span class="beat"></span>
+            <span class="bpm-num">—</span>
+            <span class="bpm-lbl">BPM</span>
+          </span>
+          <span class="time">0:00 / 0:00</span>
+          <span class="meter"><i></i></span>
+        </div>
+        <div class="transport">
+          <button class="cue" title="Set your start point (when paused), or jump back to it (when playing) — keyboard: C on the focused deck">CUE</button>
+          <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
+          <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
+          <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
+          <button class="nudge-down" title="Nudge / pitch-bend behind the beat">‹ NDG</button>
+          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat">NDG ›</button>
+          <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
+          <button class="eject" title="Eject / skip this deck">⏏</button>
+        </div>
+        <div class="perf">
+          <button class="loop-in">IN</button>
+          <button class="loop-out">OUT</button>
+          <button class="beatloop" data-beats="1">1</button>
+          <button class="beatloop" data-beats="2">2</button>
+          <button class="beatloop" data-beats="4">4</button>
+          <button class="beatloop" data-beats="8">8</button>
+          <button class="loop-toggle">LOOP</button>
+          <button class="loop-clear" title="Clear loop">✕</button>
+          <button class="keylock" title="Keylock — change tempo without pitch">KEY</button>
+        </div>
+        <div class="controls">
+          <div class="knob-wrap">
+            <div class="knob k-tempo" aria-label="Deck B tempo"><span class="knob-val"></span></div>
+            <label>TEMPO</label>
+          </div>
+          <div class="kdiv"></div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-high" aria-label="Deck B high EQ"><span class="knob-val"></span></div>
+            <label>HI</label>
+          </div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-mid" aria-label="Deck B mid EQ"><span class="knob-val"></span></div>
+            <label>MID</label>
+          </div>
+          <div class="knob-wrap">
+            <div class="knob k-eq-low" aria-label="Deck B low EQ"><span class="knob-val"></span></div>
+            <label>LOW</label>
+          </div>
+          <div class="kdiv"></div>
+          <div class="knob-wrap">
+            <div class="knob k-vol" aria-label="Deck B channel volume"><span class="knob-val"></span></div>
+            <label>VOL</label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="workspace">
+      <section id="lib-crates">
+        <div id="library" role="tabpanel" ondragover="event.preventDefault()">
+          <div class="lib-headrow">
+            <span></span>
+            <span class="th th-title">
+              <button class="th-sort" data-sort="title" title="Sort by title">Title</button>
+              <input id="lib-search" type="search" placeholder="artist / title…" />
+            </span>
+            <button class="th th-sort" data-sort="mood" title="Sort by mood">Key · Mood</button>
+            <span class="th th-bpm">
+              <button class="th-sort" data-sort="bpm" title="Sort by BPM">BPM</button>
+              <input id="lib-bpm" type="number" min="0" step="1" placeholder="±8%" />
+            </span>
+            <span></span>
+          </div>
+          <div id="track-list"></div>
+          <div id="remote-section" hidden>
+            <div class="remote-head">
+              <button id="remote-close" type="button" title="Back to your library">← Library</button>
+              <strong>Remote results</strong>
+              <label id="remote-source-picker" class="rs-picker" hidden>
+                <span class="rs-picker-label">from</span>
+                <select id="remote-source-select" title="Switch the active remote record store"></select>
+              </label>
+              <span id="remote-status"></span>
+            </div>
+            <div id="remote-list"></div>
+          </div>
+          <p class="drop-hint">Tip: press <kbd>Enter</kbd> in search to query the remote library · drag an audio file anywhere to load it onto the focused deck.</p>
+        </div>
+
+        <div id="crates" role="tabpanel" hidden>
+          <div class="cr-head">
+            <strong>CRATES</strong>
+            <input id="crate-name" type="text" maxlength="80" placeholder="New crate name…" />
+            <button id="crate-save">Save queue as crate</button>
+            <span id="crate-status">no crates yet</span>
+          </div>
+          <ul id="crate-list"></ul>
+        </div>
+
+        <div class="lct-bar" role="tablist">
+          <button class="lct-tab active" data-panel="library" role="tab" aria-selected="true">Library</button>
+          <button class="lct-tab" data-panel="crates" role="tab" aria-selected="false">Crates</button>
+          <button id="analyze-all">Analyze missing BPM</button>
+        </div>
+      </section>
+
+      <aside id="queue-side">
+        <section id="automix">
+          <div class="am-head">
+            <button id="am-toggle" class="am-off">AUTOMIX: OFF</button>
+            <button id="am-clear">Clear queue</button>
+            <button
+              id="am-clear-played"
+              title="Reset the played-tracks history so guests can re-request any song"
+            >Reset played</button>
+            <button id="am-autofill" class="am-off">AUTO-FILL: OFF</button>
+            <span id="am-status">queue empty</span>
+          </div>
+          <ol id="queue-list"></ol>
+        </section>
+        <div class="qs-foot">
+          <span id="app-version" title="Build stamp — confirms you're on the latest deploy">v{{APP_VERSION}}</span>
+        </div>
+      </aside>
+    </div>
+
+    <section id="fxpanel" aria-hidden="true">
+      <div class="fx-drawer-head">
+        <strong>FX</strong>
+        <button id="fx-close" title="Close FX">×</button>
+      </div>
+      <div class="fx-tabs">
+        <button class="fx-tab active" data-tab="xy">XY FX</button>
+        <button class="fx-tab" data-tab="list">FX list</button>
+        <button class="fx-tab" data-tab="samples">Samples</button>
+      </div>
+      <div class="fx-pane" data-pane="xy">
+        <div class="fx-xy-head">
+          <button id="fx-prev" title="previous effect">‹</button>
+          <span id="fx-name">Filter</span>
+          <button id="fx-next" title="next effect">›</button>
+          <label class="fx-latch"><input type="checkbox" id="fx-latch" /> latch</label>
+          <span id="fx-target" class="fx-target">Deck A</span>
+        </div>
+        <div id="fx-pad" class="fx-pad"><span id="fx-dot" class="fx-dot"></span></div>
+        <p class="fx-hint">Hold &amp; drag — X &amp; Y shape the effect on the focused deck. Release = off (unless latched).</p>
+      </div>
+      <div class="fx-pane" data-pane="list" hidden>
+        <div id="fx-list" class="fx-grid"></div>
+        <p class="fx-hint">Hold a button — the effect runs on the focused deck; release = off.</p>
+      </div>
+      <div class="fx-pane" data-pane="samples" hidden>
+        <div id="fx-samples" class="fx-grid"></div>
+        <button id="fx-stop-samples" type="button">■ Stop all samples</button>
+        <p class="fx-hint">
+          Tap a pad to fire a one-shot (re-tap restarts it — no
+          stacking). Stop-all kills samples only; the mix keeps playing.
+        </p>
+      </div>
+    </section>
+
+    <div id="settings-modal" class="modal-bg">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
+        <div class="modal-head">
+          <h2>⚙ SETTINGS</h2>
+          <button id="settings-close" type="button" title="Close settings" aria-label="Close settings">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="cuebar">
+            <div class="set-group">
+              <h3>Audio output</h3>
+              <p class="set-moved">Moved here from the header to keep the top bar uncluttered.</p>
+              <div class="set-row">
+                <label for="master-device">🔊 Master output</label>
+                <select id="master-device" title="Master output device"></select>
+              </div>
+              <div class="set-row">
+                <label for="cue-device">🎧 Headphone / cue output</label>
+                <select id="cue-device" title="Headphone (PFL / cue) output device"></select>
+              </div>
+              <div class="set-row">
+                <label for="cue-vol">Cue volume</label>
+                <input id="cue-vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+              </div>
+              <div class="set-row">
+                <label for="cue-blend">Cue / master blend</label>
+                <input id="cue-blend" type="range" min="0" max="1" step="0.01" value="0" />
+              </div>
+              <div class="set-row mic-row">
+                <button
+                  id="cue-note"
+                  type="button"
+                  hidden
+                  aria-label="Output device list is incomplete"
+                  aria-expanded="false"
+                >⚠ Output device list incomplete — click to fix</button>
+                <div id="cue-note-pop" class="cue-note-pop" role="dialog" hidden>
+                  <p>
+                    Only the default output is visible. Browsers hide device
+                    names until they have microphone permission — granting it
+                    here lets this app list all your speakers/headphones. The
+                    mic is never recorded.
+                  </p>
+                  <button id="cue-note-grant" type="button">Grant microphone access</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="set-group" id="remote-stores-group">
+              <h3>Remote record stores</h3>
+              <p class="set-moved">
+                Extended search reaches into a server you control (e.g.
+                <a href="https://github.com/marijnvandevoorde/pass-the-remote" target="_blank" rel="noopener noreferrer">pass-the-remote</a>)
+                or a public catalog (Jamendo). One is active at a time.
+              </p>
+              <ul id="remote-stores-list" class="rs-list"></ul>
+              <p id="remote-stores-empty" class="rs-empty" hidden>
+                No remote stores yet — add one below to enable extended search.
+              </p>
+              <button id="remote-stores-add" type="button" class="rs-add">
+                + Add remote record store
+              </button>
+
+              <form id="remote-stores-form" class="rs-form" hidden>
+                <h4 id="remote-stores-form-title">Add remote record store</h4>
+                <div class="rs-field">
+                  <label for="rs-kind">Kind</label>
+                  <select id="rs-kind">
+                    <option value="pta">Pass the Aux (self-hosted)</option>
+                    <option value="jamendo">Jamendo (Creative Commons)</option>
+                  </select>
+                </div>
+                <div class="rs-field">
+                  <label for="rs-name">Name</label>
+                  <input id="rs-name" type="text" maxlength="120" placeholder="My NAS" required />
+                </div>
+                <div class="rs-field rs-field-base">
+                  <label for="rs-base">Base URL</label>
+                  <input id="rs-base" type="url" maxlength="500" placeholder="http://nas.local:3000" />
+                </div>
+                <div class="rs-field">
+                  <label for="rs-key">
+                    <span class="rs-key-label-pta">Bearer secret</span>
+                    <span class="rs-key-label-jamendo">Client ID</span>
+                  </label>
+                  <input id="rs-key" type="password" autocomplete="off" maxlength="500" placeholder="" />
+                  <small id="rs-key-hint" class="rs-hint"></small>
+                </div>
+                <div class="rs-form-actions">
+                  <button type="button" id="rs-cancel" class="rs-cancel">Cancel</button>
+                  <button type="submit" id="rs-save" class="rs-save">Save</button>
+                </div>
+                <p id="rs-error" class="rs-error" hidden></p>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="js/app.js?v={{APP_VERSION}}"></script>
+  </body>
+</html>
