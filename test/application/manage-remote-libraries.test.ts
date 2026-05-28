@@ -4,21 +4,44 @@ import { DatabaseSync } from "node:sqlite";
 import { ManageRemoteLibraries } from "../../src/application/manage-remote-libraries.ts";
 import { ensureSchema } from "../../src/infrastructure/sqlite-pool.ts";
 import { SqliteRemoteLibrariesRepository } from "../../src/infrastructure/sqlite-remote-libraries-repository.ts";
+import { SqliteUserRepository } from "../../src/infrastructure/sqlite-user-repository.ts";
 import {
   InvalidRequestError,
   NotFoundError,
+  PlanRequiredError,
 } from "../../src/domain/errors.ts";
+import {
+  FREE_PLAN,
+  type UserRecord,
+} from "../../src/domain/ports/user-repository.ts";
+
+function userWithPlan(id: string, plan: string): UserRecord {
+  return {
+    id,
+    username: id,
+    pwSalt: "s",
+    pwHash: "h",
+    totpSecret: null,
+    totpEnabled: false,
+    recoveryCodes: null,
+    plan,
+    createdAt: 0,
+  };
+}
 
 async function setup(): Promise<{
   uc: ManageRemoteLibraries;
+  users: SqliteUserRepository;
   cleanup: () => Promise<void>;
 }> {
   // Each test gets its own in-memory DB so state doesn't leak.
   const db = new DatabaseSync(":memory:");
   ensureSchema(db);
   const repo = new SqliteRemoteLibrariesRepository(db);
+  const users = new SqliteUserRepository(db);
   return {
-    uc: new ManageRemoteLibraries(repo),
+    uc: new ManageRemoteLibraries(repo, users),
+    users,
     cleanup: async () => db.close(),
   };
 }
@@ -137,6 +160,56 @@ test("apiKey is never returned in the public shape", async () => {
     assert.equal("apiKey" in row, false);
     const list = await uc.list("u1");
     for (const r of list) assert.equal("apiKey" in r, false);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("free plan cannot add a remote (incl. jamendo); paid plan can", async () => {
+  const { uc, users, cleanup } = await setup();
+  try {
+    await users.create(userWithPlan("free-user", FREE_PLAN));
+    await users.create(userWithPlan("pro-user", "pro"));
+
+    assert.equal(await uc.canManage("free-user"), false);
+    assert.equal(await uc.canManage("pro-user"), true);
+
+    await assert.rejects(
+      uc.add("free-user", {
+        kind: "pta",
+        name: "NAS",
+        baseUrl: "http://a.local",
+        apiKey: "s",
+      }),
+      PlanRequiredError,
+    );
+    await assert.rejects(
+      uc.add("free-user", { kind: "jamendo", name: "J", apiKey: "id" }),
+      PlanRequiredError,
+    );
+
+    const ok = await uc.add("pro-user", {
+      kind: "jamendo",
+      name: "J",
+      apiKey: "id",
+    });
+    assert.equal(ok.kind, "jamendo");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("no user record (auth-disabled / legacy) is not plan-gated", async () => {
+  const { uc, cleanup } = await setup();
+  try {
+    assert.equal(await uc.canManage(""), true);
+    const row = await uc.add("", {
+      kind: "pta",
+      name: "Legacy",
+      baseUrl: "http://a.local",
+      apiKey: "s",
+    });
+    assert.equal(row.isActive, true);
   } finally {
     await cleanup();
   }

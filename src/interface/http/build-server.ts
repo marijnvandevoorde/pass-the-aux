@@ -527,7 +527,8 @@ export function buildServer(
 
     "GET /api/remote/sources": async (_req, res, _url, ctx) => {
       const items = await ctx.uc.manageRemoteLibraries.list(ctx.uid);
-      sendJson(res, 200, { items });
+      const canManage = await ctx.uc.manageRemoteLibraries.canManage(ctx.uid);
+      sendJson(res, 200, { items, canManage });
     },
     "POST /api/remote/sources": async (req, res, _url, ctx) => {
       const body = await readJsonBody(req, config.bodyLimitBytes);

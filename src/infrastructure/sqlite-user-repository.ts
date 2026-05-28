@@ -12,6 +12,7 @@ interface DbRow {
   totp_secret: string | null;
   totp_enabled: number;
   recovery_codes: string | null;
+  plan: string;
   created_at: number;
 }
 
@@ -35,12 +36,13 @@ function rowToUser(row: DbRow): UserRecord {
     totpSecret: row.totp_secret ?? null,
     totpEnabled: Boolean(row.totp_enabled),
     recoveryCodes: codes,
+    plan: row.plan,
     createdAt: Number(row.created_at),
   };
 }
 
 const COLS =
-  "id, username, pw_salt, pw_hash, totp_secret, totp_enabled, recovery_codes, created_at";
+  "id, username, pw_salt, pw_hash, totp_secret, totp_enabled, recovery_codes, plan, created_at";
 
 /** SQLite-backed user store. */
 export class SqliteUserRepository implements UserRepository {
@@ -71,7 +73,7 @@ export class SqliteUserRepository implements UserRepository {
       .prepare(
         `INSERT INTO users (${COLS})
          VALUES (:id, :username, :pwSalt, :pwHash, :totpSecret,
-                 :totpEnabled, :recoveryCodes, :createdAt)`,
+                 :totpEnabled, :recoveryCodes, :plan, :createdAt)`,
       )
       .run(this.#params(u));
   }
@@ -124,6 +126,7 @@ export class SqliteUserRepository implements UserRepository {
       totpEnabled: u.totpEnabled ? 1 : 0,
       recoveryCodes:
         u.recoveryCodes === null ? null : JSON.stringify(u.recoveryCodes),
+      plan: u.plan,
       createdAt: u.createdAt,
     };
   }

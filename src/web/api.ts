@@ -143,11 +143,17 @@ export const api = {
   /** CRUD for the user's remote record stores (Settings → Remote
    *  record stores). The server hides `apiKey` from list responses. */
   remoteStores: {
-    async list(): Promise<RemoteStorePublic[]> {
+    async list(): Promise<{
+      items: RemoteStorePublic[];
+      canManage: boolean;
+    }> {
       const res = await fetch("/api/remote/sources");
       if (!res.ok) throw new Error(`list failed (${res.status})`);
-      const body = (await res.json()) as { items: RemoteStorePublic[] };
-      return body.items;
+      const body = (await res.json()) as {
+        items: RemoteStorePublic[];
+        canManage?: boolean;
+      };
+      return { items: body.items, canManage: body.canManage ?? true };
     },
     async add(input: RemoteStoreInput): Promise<RemoteStorePublic> {
       const res = await fetch("/api/remote/sources", {

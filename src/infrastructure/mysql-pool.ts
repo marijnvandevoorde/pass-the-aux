@@ -78,6 +78,7 @@ const SCHEMA = [
      totp_secret    VARCHAR(255) NULL,
      totp_enabled   TINYINT(1)   NOT NULL DEFAULT 0,
      recovery_codes JSON         NULL,
+     plan           VARCHAR(32)  NOT NULL DEFAULT 'free',
      created_at     BIGINT       NOT NULL,
      PRIMARY KEY (id),
      UNIQUE KEY uniq_username (username)
@@ -106,8 +107,35 @@ export function ensureSchema(pool: Db): Promise<void> {
   if (!p) {
     p = (async () => {
       for (const ddl of SCHEMA) await pool.query(ddl);
+      // CREATE TABLE IF NOT EXISTS leaves an existing table untouched, so
+      // columns added later need a guarded ALTER (MySQL has no portable
+      // ADD COLUMN IF NOT EXISTS across versions).
+      await addColumnIfMissing(
+        pool,
+        "users",
+        "plan",
+        "VARCHAR(32) NOT NULL DEFAULT 'free'",
+      );
     })();
     ready.set(pool, p);
   }
   return p;
+}
+
+async function addColumnIfMissing(
+  pool: Db,
+  table: string,
+  column: string,
+  ddl: string,
+): Promise<void> {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  const present = Number((rows as Array<{ n: number | bigint }>)[0]?.n ?? 0);
+  if (present === 0) {
+    await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${ddl}`);
+  }
 }

@@ -8,7 +8,8 @@ export type ErrorCode =
   | "REMOTE_DISABLED"
   | "REMOTE_FAILED"
   | "NOT_FOUND"
-  | "UNAUTHORIZED";
+  | "UNAUTHORIZED"
+  | "PLAN_REQUIRED";
 
 /** Base class for expected, domain-level failures (mapped to HTTP status by the interface layer). */
 export class DomainError extends Error {
@@ -82,5 +83,15 @@ export class RemoteSourceError extends DomainError {
 export class NotFoundError extends DomainError {
   constructor(message: string) {
     super(message, "NOT_FOUND");
+  }
+}
+
+/** The account is authenticated but its plan doesn't include the
+ *  requested feature (e.g. a free account adding a remote store). */
+export class PlanRequiredError extends DomainError {
+  constructor(
+    message = "your plan does not include remote record stores",
+  ) {
+    super(message, "PLAN_REQUIRED");
   }
 }

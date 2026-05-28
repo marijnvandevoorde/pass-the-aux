@@ -81,7 +81,7 @@ export function createApp(
   }
   const auth = new AuthService(users, config.sessionSecret);
   const watcher = new FsLibraryWatcher(config.musicDir);
-  const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs);
+  const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs, users);
 
   /** Per-user resolver: looks up the active remote-library row and
    *  turns it into a runtime RemoteSource. Remotes are managed entirely

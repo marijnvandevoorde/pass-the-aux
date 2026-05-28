@@ -14,6 +14,8 @@ import type {
  *  `remoteEnabled` (which controls the extended-search overlay). */
 export class RemoteStoresSettings {
   readonly #onChange: () => void;
+  readonly #group = q<HTMLElement>("#remote-stores-group");
+  readonly #locked = q<HTMLElement>("#remote-stores-locked");
   readonly #list = q<HTMLUListElement>("#remote-stores-list");
   readonly #empty = q<HTMLElement>("#remote-stores-empty");
   readonly #addBtn = q<HTMLButtonElement>("#remote-stores-add");
@@ -30,6 +32,9 @@ export class RemoteStoresSettings {
 
   /** Currently shown rows (last fetch). */
   #rows: RemoteStorePublic[] = [];
+  /** Whether the account's plan allows managing remote stores. Free
+   *  accounts can't — the section is grayed out and add is blocked. */
+  #canManage = true;
   /** id of the row being edited, or null when adding. */
   #editingId: string | null = null;
   /** Cleared on every successful load; populated when the UI first
@@ -56,7 +61,9 @@ export class RemoteStoresSettings {
 
   async refresh(): Promise<void> {
     try {
-      this.#rows = await api.remoteStores.list();
+      const { items, canManage } = await api.remoteStores.list();
+      this.#rows = items;
+      this.#canManage = canManage;
       this.#loaded = true;
       this.#render();
     } catch {
@@ -70,8 +77,15 @@ export class RemoteStoresSettings {
   }
 
   #render(): void {
+    // Free plan: lock the whole section — no add, no upsell-less empty
+    // hint, just a clear "this is a paid feature" note.
+    this.#group.classList.toggle("is-locked", !this.#canManage);
+    this.#locked.hidden = this.#canManage;
+    if (!this.#canManage) this.#closeForm(); // re-shows addBtn; hide it next
+    this.#addBtn.hidden = !this.#canManage;
+
     this.#list.innerHTML = "";
-    this.#empty.hidden = this.#rows.length > 0;
+    this.#empty.hidden = !this.#canManage || this.#rows.length > 0;
     for (const row of this.#rows) {
       this.#list.appendChild(this.#renderRow(row));
     }

@@ -89,6 +89,7 @@ const SCHEMA = `
     totp_secret    TEXT,
     totp_enabled   INTEGER NOT NULL DEFAULT 0,
     recovery_codes TEXT,
+    plan           TEXT    NOT NULL DEFAULT 'free',
     created_at     INTEGER NOT NULL
   );
 
@@ -112,5 +113,22 @@ const ready = new WeakSet<Db>();
 export function ensureSchema(db: Db): void {
   if (ready.has(db)) return;
   db.exec(SCHEMA);
+  // CREATE TABLE IF NOT EXISTS never alters an existing table, so columns
+  // added after a DB was first created need an explicit, guarded ALTER.
+  addColumnIfMissing(db, "users", "plan", "TEXT NOT NULL DEFAULT 'free'");
   ready.add(db);
+}
+
+function addColumnIfMissing(
+  db: Db,
+  table: string,
+  column: string,
+  ddl: string,
+): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
 }

@@ -1,7 +1,8 @@
 import { InvalidRequestError, UnauthorizedError } from "../domain/errors.ts";
-import type {
-  UserRecord,
-  UserRepository,
+import {
+  FREE_PLAN,
+  type UserRecord,
+  type UserRepository,
 } from "../domain/ports/user-repository.ts";
 import {
   consumeRecoveryCode,
@@ -69,6 +70,7 @@ export class AuthService {
       totpSecret: secret,
       totpEnabled: false,
       recoveryCodes: await hashRecoveryCodes(recovery),
+      plan: FREE_PLAN,
       createdAt: Date.now(),
     };
     await this.#users.create(user);

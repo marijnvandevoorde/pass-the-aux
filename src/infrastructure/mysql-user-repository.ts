@@ -13,6 +13,7 @@ export function rowToUser(row: {
   totp_secret: string | null;
   totp_enabled: number | boolean;
   recovery_codes: unknown;
+  plan: string;
   created_at: number | bigint;
 }): UserRecord {
   let codes: string[] | null = null;
@@ -35,12 +36,13 @@ export function rowToUser(row: {
     totpSecret: row.totp_secret ?? null,
     totpEnabled: Boolean(row.totp_enabled),
     recoveryCodes: codes,
+    plan: row.plan,
     createdAt: Number(row.created_at),
   };
 }
 
 const COLS =
-  "id, username, pw_salt, pw_hash, totp_secret, totp_enabled, recovery_codes, created_at";
+  "id, username, pw_salt, pw_hash, totp_secret, totp_enabled, recovery_codes, plan, created_at";
 
 /** MySQL-backed user store — the store for STORAGE_DRIVER=mysql. */
 export class MysqlUserRepository implements UserRepository {
@@ -73,7 +75,7 @@ export class MysqlUserRepository implements UserRepository {
     await this.#pool.execute(
       `INSERT INTO users (${COLS})
        VALUES (:id, :username, :pwSalt, :pwHash, :totpSecret,
-               :totpEnabled, :recoveryCodes, :createdAt)`,
+               :totpEnabled, :recoveryCodes, :plan, :createdAt)`,
       this.#params(u),
     );
   }
@@ -113,6 +115,7 @@ export class MysqlUserRepository implements UserRepository {
       totpEnabled: u.totpEnabled ? 1 : 0,
       recoveryCodes:
         u.recoveryCodes === null ? null : JSON.stringify(u.recoveryCodes),
+      plan: u.plan,
       createdAt: u.createdAt,
     };
   }

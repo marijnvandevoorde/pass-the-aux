@@ -5,7 +5,7 @@
   "description": "Pass the Aux — a small-party DJ mixer for the rest of us. Two decks, collaborative crate, crowd suggestions over QR, and extended search across self-hosted remote record stores. Layered TypeScript with near-zero runtime deps.",
   "type": "module",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.web.json",

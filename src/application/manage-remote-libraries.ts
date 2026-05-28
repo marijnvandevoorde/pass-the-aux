@@ -1,4 +1,8 @@
-import { InvalidRequestError, NotFoundError } from "../domain/errors.ts";
+import {
+  InvalidRequestError,
+  NotFoundError,
+  PlanRequiredError,
+} from "../domain/errors.ts";
 import {
   isRemoteLibraryKind,
   type NewRemoteLibrary,
@@ -6,6 +10,10 @@ import {
   type RemoteLibraryKind,
   type RemoteLibraryRow,
 } from "../domain/ports/remote-libraries-repository.ts";
+import {
+  canManageRemoteLibraries,
+  type UserRepository,
+} from "../domain/ports/user-repository.ts";
 
 /** A row's safe-to-serialise shape — `apiKey` is never returned. */
 export interface RemoteLibraryPublic {
@@ -37,9 +45,11 @@ const KEY_MAX = 500;
  *  per-user isolation. */
 export class ManageRemoteLibraries {
   readonly #repo: RemoteLibrariesRepository;
+  readonly #users: UserRepository;
 
-  constructor(repo: RemoteLibrariesRepository) {
+  constructor(repo: RemoteLibrariesRepository, users: UserRepository) {
     this.#repo = repo;
+    this.#users = users;
   }
 
   async list(uid: string): Promise<RemoteLibraryPublic[]> {
@@ -47,7 +57,17 @@ export class ManageRemoteLibraries {
     return rows.map(toPublic);
   }
 
+  /** Whether this account's plan permits adding remote record stores.
+   *  The settings UI uses it to gray out the section; `add()` enforces
+   *  it server-side. Auth-disabled (uid "") and unknown users are not
+   *  blocked — only a real account on the free plan is. */
+  async canManage(uid: string): Promise<boolean> {
+    const user = uid ? await this.#users.findById(uid) : null;
+    return user === null ? true : canManageRemoteLibraries(user.plan);
+  }
+
   async add(uid: string, body: unknown): Promise<RemoteLibraryPublic> {
+    if (!(await this.canManage(uid))) throw new PlanRequiredError();
     const input = validateNew(body);
     const row = await this.#repo.create(uid, input);
     return toPublic(row);

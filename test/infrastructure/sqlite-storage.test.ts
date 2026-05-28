@@ -89,6 +89,7 @@ test("sqlite: users create/find/update/count/allIds", async () => {
     totpSecret: "abcd",
     totpEnabled: true,
     recoveryCodes: ["c1", "c2"],
+    plan: "pro",
     createdAt: 42,
   });
   assert.equal(await repo.count(), 1);
@@ -97,6 +98,7 @@ test("sqlite: users create/find/update/count/allIds", async () => {
   assert.equal(fetched?.id, "id1");
   assert.equal(fetched?.totpEnabled, true);
   assert.deepEqual(fetched?.recoveryCodes, ["c1", "c2"]);
+  assert.equal(fetched?.plan, "pro");
 
   await repo.update({ ...fetched!, totpEnabled: false, recoveryCodes: null });
   const after = await repo.findById("id1");

@@ -25,6 +25,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   REMOTE_FAILED: 502,
   NOT_FOUND: 404,
   UNAUTHORIZED: 401,
+  PLAN_REQUIRED: 403,
 };
 
 export function statusForError(err: unknown): number {

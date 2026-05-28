@@ -1851,6 +1851,29 @@ select.r-q {
 
 /* ---- settings → remote record stores --------------------------------- */
 
+/* Free plan: dim the list and block interaction; the upsell note
+   (.rs-locked) explains why and stays fully legible. */
+#remote-stores-group.is-locked .rs-list,
+#remote-stores-group.is-locked .set-moved {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.rs-locked {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.rs-locked strong {
+  color: var(--accent);
+}
+
 .rs-list {
   list-style: none;
   margin: 0 0 10px;

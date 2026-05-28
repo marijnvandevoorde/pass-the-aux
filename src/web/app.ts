@@ -1379,7 +1379,7 @@ remoteSourceSelect.onchange = async () => {
  *  marks the active one selected. Hidden otherwise. */
 async function refreshSourcePicker(): Promise<void> {
   try {
-    const rows = await api.remoteStores.list();
+    const { items: rows } = await api.remoteStores.list();
     if (rows.length < 2) {
       remoteSourcePicker.hidden = true;
       return;
