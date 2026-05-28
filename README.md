@@ -154,6 +154,161 @@ project's `.env`. Add the remote record store under **Settings → Remote
 record stores** (URL `http://pass-the-remote:3000` and the Bearer secret
 you set when starting pass-the-remote).
 
+#### Full stack with published images (MySQL + companions)
+
+No source checkout required. Each repo's release workflow publishes a
+container image to the GitHub Container Registry on every `vX.Y.Z` tag, so
+you can run the whole project — the mixer on **MySQL**, the neural
+**pass-the-beat** sidecar, and an externally-reachable **pass-the-remote**
+record store — from prebuilt images.
+
+> The images are public on `ghcr.io`, so `docker compose` pulls them with
+> no login. (If you're publishing your own fork: after the first tagged
+> release, set each package's visibility to **Public** once in its GitHub
+> package settings.)
+
+Put secrets in a `.env` next to the compose file (it stays out of git):
+
+```bash
+# Generate strong values:
+#   openssl rand -hex 16   # passwords
+#   openssl rand -hex 32   # secrets
+MYSQL_ROOT_PASSWORD=...    # MySQL root
+DB_PASSWORD=...            # MySQL app user
+SESSION_SECRET=...         # signs session cookies + encrypts TOTP (≥16 chars)
+REMOTE_SECRET=...          # Bearer secret clients send to pass-the-remote
+
+# Host folders:
+MUSIC_DIR=/path/to/music         # the mixer's local library (shared with pass-the-beat)
+RECORDSTORE_DIR=/path/to/catalog # pass-the-remote's separate, served catalog
+# REMOTE_PORT=3000               # host port pass-the-remote is exposed on
+```
+
+```yaml
+# compose.yml
+name: pass-the-aux
+
+services:
+  # Persistence for the mixer (STORAGE_DRIVER=mysql). Internal only —
+  # the mixer reaches it as `mysql:3306` on the shared `pta` network.
+  # (Mirrors docker-compose.mysql.yml; add a `ports:` mapping if you
+  # want to reach the DB from the host.)
+  mysql:
+    image: mysql:8.4
+    command: --innodb-buffer-pool-size=128M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_NAME:-passtheaux}
+      MYSQL_USER: ${DB_USER:-passtheaux}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [pta]
+
+  # The mixer.
+  pass-the-aux:
+    image: ghcr.io/marijnvandevoorde/pass-the-aux:latest
+    ports:
+      - "${PASS_THE_AUX_PORT:-5174}:5174"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5174
+      - MUSIC_DIR=/app/music
+      - STORAGE_DRIVER=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-passtheaux}
+      - DB_USER=${DB_USER:-passtheaux}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET in .env}
+      # First boot only: open registration to create your account, then
+      # set REGISTRATION_OPEN=off in .env and re-run `up -d`.
+      - REGISTRATION_OPEN=${REGISTRATION_OPEN:-on}
+      # Use the neural sidecar for beat-grids.
+      - BEAT_ANALYZER=pass-the-beat
+      - PASS_THE_BEAT_URL=http://pass-the-beat:8000
+    volumes:
+      - ${MUSIC_DIR:-./music}:/app/music
+      - ./data/pass-the-aux:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      pass-the-beat:
+        condition: service_started
+    restart: unless-stopped
+    networks: [pta]
+
+  # Neural beat-tracking sidecar — internal only, reached as
+  # http://pass-the-beat:8000 on the `pta` network.
+  pass-the-beat:
+    image: ghcr.io/marijnvandevoorde/pass-the-beat:latest
+    environment:
+      - BEATTHIS_CHECKPOINT=final0
+      - BEATTHIS_DEVICE=cpu
+    volumes:
+      - ${MUSIC_DIR:-./music}:/music:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks: [pta]
+
+  # Self-hosted record store — EXPOSED on the host so other devices (a
+  # phone on the LAN, a friend's mixer over the internet) can reach it.
+  # Every request is gated by `Authorization: Bearer ${REMOTE_SECRET}`.
+  pass-the-remote:
+    image: ghcr.io/marijnvandevoorde/pass-the-remote:latest
+    ports:
+      - "${REMOTE_PORT:-3000}:3000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - MUSIC_DIR=/music
+      - DB_PATH=/data/library.db
+      - REMOTE_SECRET=${REMOTE_SECRET:?set REMOTE_SECRET in .env}
+      - SCAN_INTERVAL_S=${SCAN_INTERVAL_S:-300}
+    volumes:
+      - ${RECORDSTORE_DIR:-./recordstore}:/music:ro
+      - ./data/pass-the-remote:/data
+    restart: unless-stopped
+    networks: [pta]
+
+networks:
+  pta:
+    name: pta
+    driver: bridge
+```
+
+Bring it up:
+
+```bash
+docker compose up -d
+#   pass-the-aux    → http://localhost:5174        (open it, create your account)
+#   pass-the-remote → http://<this-host>:3000      (reachable from anywhere; Bearer-gated)
+#   pass-the-beat   → internal sidecar (no host port)
+#   mysql           → internal (no host port)
+```
+
+Then wire the record store into the mixer under **Settings → Remote
+record stores**:
+
+- **kind** `pta`
+- **URL** `http://pass-the-remote:3000` (the mixer reaches it by name on
+  the `pta` network; use `http://<host-ip>:${REMOTE_PORT}` from other devices)
+- **secret** your `REMOTE_SECRET`
+
+Once your account exists, set `REGISTRATION_OPEN=off` in `.env` and
+`docker compose up -d` again to close public sign-ups.
+
 ## Configuration
 
 All config comes from the environment (see `.env.example`; copy to

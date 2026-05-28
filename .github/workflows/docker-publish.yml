@@ -1,0 +1,68 @@
+name: Publish image
+
+# Builds the container image and pushes it to the GitHub Container Registry
+# (ghcr.io) whenever a version tag is pushed, e.g.:
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# The image is published as ghcr.io/<owner>/<repo> with tags derived from the
+# git tag: the full version (1.2.3), the major.minor (1.2), and `latest` for
+# non-prerelease tags. Auth uses the built-in GITHUB_TOKEN — no secrets needed.
+#
+# One-time setup: after the first run, open the package on GitHub and set its
+# visibility to Public so anyone can pull it for free (public packages are
+# unlimited on GHCR; private ones count against the free-plan storage quota).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # APP_VERSION stamps the running app with the released version
+          # (see the ARG in the Dockerfile); falls back to a timestamp if unset.
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+          # Reuse layers across runs to keep rebuilds fast.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
