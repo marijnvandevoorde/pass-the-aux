@@ -96,6 +96,11 @@ const DND_TRACK = "application/x-dj-track";
 /** MIME for reordering items within the queue (carries the index). */
 const QUEUE_DND = "application/x-dj-queue";
 
+/** ArrayBuffers for OS-dropped files, keyed by generated UUID. */
+const localBuffers = new Map<string, ArrayBuffer>();
+/** Client-side tracks (OS-dropped files added to the library view). */
+let localTracks: TrackInfo[] = [];
+
 /** The deck a double-click (Automix off) should load into: the one not
  *  playing; if ambiguous, an empty deck, else the deck opposite focus. */
 function nonPlayingDeck(): DeckId {
@@ -267,6 +272,59 @@ function updateSortHeaders(): void {
     });
 }
 
+/** Store an OS-dropped File in memory and return a TrackInfo for it. */
+async function storeLocalFile(file: File): Promise<TrackInfo> {
+  const id = crypto.randomUUID();
+  const buf = await file.arrayBuffer();
+  localBuffers.set(id, buf);
+  return { id, name: file.name, path: null, bpm: null };
+}
+
+function renderLocalTracks(): void {
+  const container = must<HTMLElement>("#local-track-list");
+  container.hidden = localTracks.length === 0;
+  container.innerHTML = "";
+  if (localTracks.length === 0) return;
+  const heading = document.createElement("div");
+  heading.className = "local-tracks-heading";
+  heading.textContent = "LOCAL FILES";
+  container.appendChild(heading);
+  for (const t of localTracks) {
+    const row = document.createElement("div");
+    row.className = "row local-row";
+    row.innerHTML = `
+      <span class="r-cover-wrap"></span>
+      <span class="r-name" title="${esc(t.name)}">${esc(t.name)}</span>
+      <span class="r-meta"></span>
+      <span class="r-bpm missing">— BPM</span>
+      <span class="r-actions">
+        <button data-act="A">→ A</button>
+        <button data-act="B">→ B</button>
+        <button data-act="Q">+ Queue</button>
+      </span>`;
+    must<HTMLButtonElement>('[data-act="A"]', row).onclick = () =>
+      void loadToDeck(t, "A");
+    must<HTMLButtonElement>('[data-act="B"]', row).onclick = () =>
+      void loadToDeck(t, "B");
+    must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () =>
+      automix.enqueue(t);
+    row.draggable = true;
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer?.setData(DND_TRACK, JSON.stringify(t));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+    });
+    row.addEventListener("dblclick", (e) => {
+      if ((e.target as HTMLElement).closest(".r-actions")) return;
+      if (automix.on) {
+        automix.enqueue(t);
+      } else {
+        void loadToDeck(t, nonPlayingDeck());
+      }
+    });
+    container.appendChild(row);
+  }
+}
+
 function renderList(): void {
   // search + sort are server-side now; `tracks` arrives already
   // sorted/filtered. The BPM ±8% mixable window stays a client filter
@@ -352,34 +410,42 @@ function renderList(): void {
 
 async function loadToDeck(track: TrackInfo, deckId: DeckId): Promise<void> {
   const deck = decks[deckId];
+  let buf: ArrayBuffer;
   if (track.path === null) {
-    setStatus("cannot load: track has no server path");
-    return;
+    const stored = track.id ? localBuffers.get(track.id) : undefined;
+    if (!stored) {
+      setStatus("cannot load: local file is no longer in memory");
+      return;
+    }
+    buf = stored;
+  } else {
+    history.record(track.path);
+    try {
+      buf = await api.getAudio(track.path);
+    } catch (e) {
+      setStatus(`load failed: ${(e as Error).message}`);
+      return;
+    }
   }
-  history.record(track.path);
   try {
     setStatus(`loading "${track.name}" → Deck ${deckId}…`);
-    const buf = await api.getAudio(track.path);
     await deck.loadArrayBuffer(buf, track);
-    setDeckName(deckId, track.name);
-    // pull the server-computed beat grid in the background.
-    // Phase-aligned crossfades use it when present; if it's missing
-    // (background analysis hasn't reached this track yet), the existing
-    // BPM-only math stays as the fallback.
-    void api.getBeatGrid(track.path).then((g) => {
-      if (!g || deck.track?.path !== track.path) return;
-      deck.applyBeatGrid({
-        beats: g.beats,
-        downbeatPhase: g.downbeatPhase,
-        firstSolidCueSec: g.firstSolidCueSec,
+    setDeckName(deckId, track.name + (track.path ? "" : " (local)"));
+    if (track.path) {
+      // pull the server-computed beat grid in the background.
+      void api.getBeatGrid(track.path).then((g) => {
+        if (!g || deck.track?.path !== track.path) return;
+        deck.applyBeatGrid({
+          beats: g.beats,
+          downbeatPhase: g.downbeatPhase,
+          firstSolidCueSec: g.firstSolidCueSec,
+        });
       });
-    });
+    }
     if (!track.bpm) {
       setStatus(`analyzing BPM for "${track.name}"…`);
       await analyzeDeck(deck);
     } else {
-      // Track-load success is already obvious from the deck name + BPM
-      // readout in the deck UI — no need to mirror it into the header.
       setStatus("");
     }
   } catch (e) {
@@ -648,28 +714,36 @@ function wireDeck(id: DeckId): void {
 
   root.addEventListener("pointerdown", () => setFocus(id));
 
-  // Accept a song dragged from the library. stopPropagation keeps the
-  // window-level OS-file drop handler from also firing.
+  // Accept library-row drags and OS file drops. stopPropagation keeps
+  // the window-level handler from also firing.
   root.addEventListener("dragover", (e) => {
-    if (!e.dataTransfer?.types.includes(DND_TRACK)) return;
+    const dt = e.dataTransfer;
+    if (!dt?.types.includes(DND_TRACK) && !dt?.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
+    dt.dropEffect = "copy";
     root.classList.add("drop-target");
   });
   root.addEventListener("dragleave", (e) => {
     if (e.target === root) root.classList.remove("drop-target");
   });
   root.addEventListener("drop", (e) => {
-    const raw = e.dataTransfer?.getData(DND_TRACK);
-    if (!raw) return;
     e.preventDefault();
     e.stopPropagation();
     root.classList.remove("drop-target");
-    try {
-      void loadToDeck(JSON.parse(raw) as TrackInfo, id);
-    } catch {
-      setStatus("could not load the dragged track");
+    const raw = e.dataTransfer?.getData(DND_TRACK);
+    if (raw) {
+      try {
+        void loadToDeck(JSON.parse(raw) as TrackInfo, id);
+      } catch {
+        setStatus("could not load the dragged track");
+      }
+      return;
+    }
+    const file = e.dataTransfer?.files[0];
+    if (file) {
+      setFocus(id);
+      void storeLocalFile(file).then((track) => loadToDeck(track, id));
     }
   });
 
@@ -1048,6 +1122,61 @@ function wireGlobal(): void {
     }
   };
 
+  // Queue panel: accept OS file drops → enqueue.
+  const queueSide = must<HTMLElement>("#queue-side");
+  queueSide.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    queueSide.classList.add("drop-target");
+  });
+  queueSide.addEventListener("dragleave", (e) => {
+    if (!queueSide.contains(e.relatedTarget as Node))
+      queueSide.classList.remove("drop-target");
+  });
+  queueSide.addEventListener("drop", (e) => {
+    const file = e.dataTransfer?.files[0];
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    queueSide.classList.remove("drop-target");
+    void storeLocalFile(file).then((track) => {
+      automix.enqueue(track);
+      setStatus(`queued "${file.name}" (local)`);
+    });
+  });
+
+  // Library panel: accept OS file drops → add to local tracks section.
+  const libPanel = must<HTMLElement>("#library");
+  libPanel.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    libPanel.classList.add("drop-target");
+  });
+  libPanel.addEventListener("dragleave", (e) => {
+    if (!libPanel.contains(e.relatedTarget as Node))
+      libPanel.classList.remove("drop-target");
+  });
+  libPanel.addEventListener("drop", (e) => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    libPanel.classList.remove("drop-target");
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("audio/"),
+    );
+    if (!files.length) { setStatus("no audio files in drop"); return; }
+    void Promise.all(files.map(storeLocalFile)).then((added) => {
+      localTracks = [...localTracks, ...added];
+      renderLocalTracks();
+      setStatus(`added ${added.length} local file${added.length > 1 ? "s" : ""} to library`);
+    });
+  });
+
+  // Fallback window-level drop: OS file → focused deck.
   window.addEventListener("dragover", (e) => {
     e.preventDefault();
     document.body.classList.add("dragging");
@@ -1060,15 +1189,8 @@ function wireGlobal(): void {
     document.body.classList.remove("dragging");
     const file = e.dataTransfer?.files[0];
     if (!file) return;
-    const deck = decks[focused];
-    setStatus(`loading "${file.name}" → Deck ${focused}…`);
-    await deck.loadArrayBuffer(await file.arrayBuffer(), {
-      name: file.name,
-      path: null,
-      bpm: null,
-    });
-    setDeckName(focused, file.name + " (local)");
-    await analyzeDeck(deck);
+    const track = await storeLocalFile(file);
+    void loadToDeck(track, focused);
   });
 
   // Session-id controls. Default the field, let the DJ edit it, share

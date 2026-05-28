@@ -406,7 +406,9 @@ main {
 }
 
 .deck.drop-target,
-#automix.drop-target {
+#automix.drop-target,
+#queue-side.drop-target,
+#library.drop-target {
   outline: 2px dashed var(--accent);
   outline-offset: -4px;
 }
@@ -1137,6 +1139,20 @@ main {
 .row .r-actions button {
   padding: 6px 9px;
   font-size: 11px;
+}
+
+.local-tracks-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--faint);
+  padding: 6px 2px 2px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2px;
+}
+
+.local-row {
+  opacity: .85;
 }
 
 .drop-hint {
