@@ -1243,6 +1243,7 @@ function wireGlobal(): void {
   });
   mobSkip.addEventListener("pointerup", cancelSkip);
   mobSkip.addEventListener("pointercancel", cancelSkip);
+  mobSkip.addEventListener("contextmenu", (e) => e.preventDefault());
 
   must<HTMLButtonElement>("#session-share").onclick = async () => {
     if (!qrPanel.hidden) {

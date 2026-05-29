@@ -13,10 +13,13 @@
     "start": "npm run build && node server.ts",
     "dev": "npm run build && (trap 'kill 0' EXIT; tsc -p tsconfig.web.json --watch --preserveWatchOutput & node --watch server.ts)",
     "serve": "node server.ts",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "visual-test": "node test/visual/mobile.mjs",
+    "visual-update": "node test/visual/mobile.mjs --update"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "playwright": "^1.52.0",
     "typescript": "^6.0.3"
   },
   "dependencies": {
