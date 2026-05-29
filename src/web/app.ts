@@ -2121,14 +2121,18 @@ function restoreSession(): void {
   }
 
   if (!s) {
-    // Fresh session — default automix and auto-fill on so the app is
-    // immediately ready to play from the queue on first load.
-    autoFill = true;
-    const af = must<HTMLButtonElement>("#am-autofill");
-    af.textContent = "AUTO-FILL: ON";
-    af.classList.replace("am-off", "am-on");
-    automix.restoreOn(true);
-    void ensureSession();
+    // Fresh session on a mobile viewport: default automix + auto-fill on
+    // so the queue works immediately without the DJ having to find the toggle
+    // (which is hidden on mobile anyway). Desktop keeps automix off by default
+    // so manually-loaded deck tracks continue to work normally.
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      autoFill = true;
+      const af = must<HTMLButtonElement>("#am-autofill");
+      af.textContent = "AUTO-FILL: ON";
+      af.classList.replace("am-off", "am-on");
+      automix.restoreOn(true);
+      void ensureSession();
+    }
     return;
   }
 
