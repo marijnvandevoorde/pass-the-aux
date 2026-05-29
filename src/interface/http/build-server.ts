@@ -283,6 +283,7 @@ export function buildServer(
       const body = (await readJsonBody(req, config.bodyLimitBytes)) as {
         id?: unknown;
         played?: unknown;
+        nowPlaying?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
       const played = Array.isArray(body?.played)
@@ -293,6 +294,20 @@ export function buildServer(
       if (!sessions.has(id)) {
         sendJson(res, 404, { error: "session not found" });
         return;
+      }
+      const np = body?.nowPlaying;
+      if (np === null) {
+        sessions.setNowPlaying(id, null);
+      } else if (np !== undefined && typeof np === "object") {
+        const o = np as Record<string, unknown>;
+        if (typeof o.name === "string") {
+          sessions.setNowPlaying(id, {
+            name: o.name,
+            artist: typeof o.artist === "string" ? o.artist : null,
+            bpm: typeof o.bpm === "number" ? o.bpm : null,
+            path: typeof o.path === "string" ? o.path : null,
+          });
+        }
       }
       sendJson(res, 200, { pending: sessions.drain(id, played) });
     },

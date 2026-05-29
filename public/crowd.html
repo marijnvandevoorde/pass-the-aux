@@ -257,6 +257,70 @@
         opacity: 1;
         transition: opacity 0.22s ease, visibility 0s linear 0s;
       }
+      /* ── Now Playing pill ──────────────────────────── */
+      #now-playing-pill {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        margin-bottom: 14px;
+        cursor: pointer;
+        user-select: none;
+        transition: border-color 0.15s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #now-playing-pill.visible { display: flex; }
+      #now-playing-pill.stale { opacity: 0.45; }
+      #now-playing-pill:active { border-color: var(--accent); }
+      #np-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent); flex: none;
+        animation: np-pulse 1.6s ease-in-out infinite;
+      }
+      #now-playing-pill.stale #np-dot { animation: none; background: var(--dim); }
+      @keyframes np-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.75); }
+      }
+      #np-text { min-width: 0; flex: 1; }
+      #np-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+      #np-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #np-chevron { color: var(--dim); font-size: 13px; flex: none; }
+      /* ── Now Playing bottom sheet ──────────────────── */
+      #np-sheet {
+        position: fixed; inset: 0; z-index: 20;
+        display: flex; align-items: flex-end;
+        background: rgba(0,0,0,0);
+        pointer-events: none;
+        transition: background 0.25s ease;
+      }
+      #np-sheet.open { background: rgba(0,0,0,0.6); pointer-events: auto; }
+      #np-card {
+        width: 100%; background: var(--card);
+        border-radius: 20px 20px 0 0;
+        border: 1px solid var(--line); border-bottom: none;
+        padding: 16px 24px calc(24px + env(safe-area-inset-bottom));
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(.32,0,.2,1);
+      }
+      #np-sheet.open #np-card { transform: translateY(0); }
+      #np-handle {
+        width: 36px; height: 4px; border-radius: 2px;
+        background: var(--line); margin: 0 auto 20px;
+      }
+      #np-cover-wrap {
+        width: 180px; height: 180px; border-radius: 12px;
+        background: var(--line); margin: 0 auto 20px;
+        overflow: hidden; display: flex; align-items: center; justify-content: center;
+        font-size: 56px;
+      }
+      #np-cover { width: 100%; height: 100%; object-fit: cover; display: none; }
+      #np-cover.loaded { display: block; }
+      #np-sheet-name { font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 6px; }
+      #np-sheet-meta { font-size: 14px; color: var(--dim); text-align: center; margin: 0; }
     </style>
   </head>
   <body>
@@ -266,6 +330,14 @@
       <p id="status" data-kind="ok">Connecting…</p>
     </header>
     <div class="wrap">
+      <div id="now-playing-pill" role="button" tabindex="0" aria-label="Now playing — tap for details">
+        <span id="np-dot"></span>
+        <span id="np-text">
+          <span id="np-label">Now playing</span>
+          <span id="np-name">—</span>
+        </span>
+        <span id="np-chevron">›</span>
+      </div>
       <input
         id="q"
         type="search"
@@ -299,6 +371,17 @@
           Powered by <strong>Pass&nbsp;the&nbsp;Aux</strong>
         </a>
       </footer>
+    </div>
+    <div id="np-sheet" role="dialog" aria-modal="true" aria-label="Now playing details">
+      <div id="np-card">
+        <div id="np-handle"></div>
+        <div id="np-cover-wrap">
+          <img id="np-cover" alt="Album art" />
+          <span id="np-cover-emoji">🎵</span>
+        </div>
+        <p id="np-sheet-name">—</p>
+        <p id="np-sheet-meta">—</p>
+      </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="modal" role="dialog" aria-modal="true" aria-labelledby="m-title">

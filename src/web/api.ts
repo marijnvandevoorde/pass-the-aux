@@ -241,12 +241,13 @@ export const api = {
   async syncSession(
     id: string,
     played: string[],
+    nowPlaying?: { name: string; artist: string | null; bpm: number | null; path: string | null } | null,
   ): Promise<SessionQueueItem[]> {
     try {
       const res = await fetch("/api/session/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, played }),
+        body: JSON.stringify({ id, played, nowPlaying }),
       });
       if (!res.ok) return [];
       const body = (await res.json()) as { pending?: SessionQueueItem[] };
@@ -317,6 +318,13 @@ export interface SessionQueueItem {
   bpm: number | null;
 }
 
+export interface NowPlaying {
+  name: string;
+  artist: string | null;
+  bpm: number | null;
+  path: string | null;
+}
+
 export interface SessionSnapshot {
   id: string;
   config: {
@@ -327,4 +335,6 @@ export interface SessionSnapshot {
   };
   pending: SessionQueueItem[];
   played: string[];
+  nowPlaying: NowPlaying | null;
+  nowPlayingAt: number | null;
 }

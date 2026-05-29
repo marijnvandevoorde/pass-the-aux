@@ -6,6 +6,13 @@
 // (so the same track can't be re-queued — SESSION·4). The DJ drains
 // `pending` on its poll and tells us what it has actually played.
 
+export interface NowPlaying {
+  name: string;
+  artist: string | null;
+  bpm: number | null;
+  path: string | null;
+}
+
 export interface SessionConfigDTO {
   automix: boolean;
   autoFill: boolean;
@@ -24,6 +31,8 @@ export interface SessionSnapshot {
   config: SessionConfigDTO;
   pending: SessionQueueItem[];
   played: string[];
+  nowPlaying: NowPlaying | null;
+  nowPlayingAt: number | null;
 }
 
 interface Entry {
@@ -35,6 +44,8 @@ interface Entry {
   /** the account that owns this session (whose music dir the
    *  crowd searches/queues into). "" when auth is disabled. */
   ownerUserId: string;
+  nowPlaying: NowPlaying | null;
+  nowPlayingAt: number | null;
 }
 
 function newId(): string {
@@ -75,6 +86,8 @@ export class SessionStore {
         pending: [],
         played: new Set(),
         ownerUserId,
+        nowPlaying: null,
+        nowPlayingAt: null,
       });
       return wanted;
     }
@@ -86,6 +99,8 @@ export class SessionStore {
       pending: [],
       played: new Set(),
       ownerUserId,
+      nowPlaying: null,
+      nowPlayingAt: null,
     });
     return id;
   }
@@ -107,7 +122,16 @@ export class SessionStore {
       config: e.config,
       pending: [...e.pending],
       played: [...e.played],
+      nowPlaying: e.nowPlaying,
+      nowPlayingAt: e.nowPlayingAt,
     };
+  }
+
+  setNowPlaying(id: string, track: NowPlaying | null): void {
+    const e = this.#m.get(id);
+    if (!e) return;
+    e.nowPlaying = track;
+    e.nowPlayingAt = track ? Date.now() : null;
   }
 
   /** Crowd add. Rejects a track already played/queued (SESSION·4). */

@@ -6,6 +6,7 @@
 // into the DJ's automix session server-side.
 import { api } from "./api.js";
 import type { LibraryResponse, RemoteTrackInfo } from "./types.js";
+import type { NowPlaying } from "./api.js";
 
 type LibTrack = LibraryResponse["tracks"][number];
 
@@ -25,6 +26,57 @@ const remoteBox = $<HTMLDivElement>("#remote");
 const toastEl = $<HTMLDivElement>("#toast");
 const modalEl = $<HTMLDivElement>("#modal");
 const modalBody = $<HTMLParagraphElement>("#m-body");
+
+// Now Playing pill + sheet
+const npPill = $<HTMLDivElement>("#now-playing-pill");
+const npName = $<HTMLSpanElement>("#np-name");
+const npSheet = $<HTMLDivElement>("#np-sheet");
+const npCover = $<HTMLImageElement>("#np-cover");
+const npCoverEmoji = $<HTMLSpanElement>("#np-cover-emoji");
+const npSheetName = $<HTMLParagraphElement>("#np-sheet-name");
+const npSheetMeta = $<HTMLParagraphElement>("#np-sheet-meta");
+
+const STALE_MS = 30_000;
+
+function openNpSheet(): void { npSheet.classList.add("open"); }
+function closeNpSheet(): void { npSheet.classList.remove("open"); }
+
+npPill.addEventListener("click", openNpSheet);
+npPill.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") openNpSheet(); });
+npSheet.addEventListener("click", (e) => { if (e.target === npSheet) closeNpSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeNpSheet(); });
+
+function updateNowPlaying(np: NowPlaying | null, at: number | null): void {
+  if (!np) {
+    npPill.classList.remove("visible");
+    return;
+  }
+  const stale = at !== null && Date.now() - at > STALE_MS;
+  npPill.classList.add("visible");
+  npPill.classList.toggle("stale", stale);
+  npName.textContent = np.name;
+
+  // Sheet
+  npSheetName.textContent = np.name;
+  const bpmTxt = np.bpm ? `${Math.round(np.bpm)} BPM` : null;
+  npSheetMeta.textContent = [np.artist, bpmTxt].filter(Boolean).join(" · ") || "—";
+
+  // Cover art
+  if (np.path) {
+    const src = "/api/cover?path=" + encodeURIComponent(np.path);
+    if (npCover.dataset.src !== src) {
+      npCover.dataset.src = src;
+      npCover.classList.remove("loaded");
+      npCoverEmoji.hidden = false;
+      npCover.onload = () => { npCover.classList.add("loaded"); npCoverEmoji.hidden = true; };
+      npCover.onerror = () => { npCover.classList.remove("loaded"); npCoverEmoji.hidden = false; };
+      npCover.src = src;
+    }
+  } else {
+    npCover.classList.remove("loaded");
+    npCoverEmoji.hidden = false;
+  }
+}
 
 const REPLAY_MSG =
   "This track already played this session — the DJ keeps each track to once per set. Pick another and keep the party moving! 🎉";
@@ -61,19 +113,19 @@ function toast(msg: string, kind: "ok" | "warn" = "ok"): void {
   window.setTimeout(() => toastEl.classList.remove("show"), 2600);
 }
 
-async function loadSession(): Promise<boolean> {
+async function loadSession(): Promise<{ ok: boolean; snap: (typeof api.getSession extends (...a: any[]) => Promise<infer R> ? R : never) }> {
   const snap = await api.getSession(sessionId);
   if (!snap) {
     statusEl.textContent =
       "This request session is closed. Ask the DJ for a fresh code. 🎧";
     statusEl.dataset.kind = "warn";
     searchEl.disabled = true;
-    return false;
+    return { ok: false, snap: null };
   }
   played = new Set(snap.played);
   statusEl.textContent = "Connected — pick a track to queue 🎉";
   statusEl.dataset.kind = "ok";
-  return true;
+  return { ok: true, snap };
 }
 
 function isUsed(path: string): boolean {
@@ -262,8 +314,8 @@ async function main(): Promise<void> {
     searchEl.disabled = true;
     return;
   }
-  const ok = await loadSession();
-  if (!ok) return;
+  const { ok, snap } = await loadSession();
+  if (!ok || !snap) return;
 
   empty(localBox, "Loading the crate…");
   try {
@@ -281,13 +333,15 @@ async function main(): Promise<void> {
     searchEl.placeholder = "Filter the crate — press Enter to search the web";
   }
 
-  // Keep the played set fresh so rows flip to "Played" through the
-  // night; re-render the (already loaded) library in place.
+  updateNowPlaying(snap.nowPlaying ?? null, snap.nowPlayingAt ?? null);
+
+  // Keep the played set and now-playing fresh; re-render in place.
   window.setInterval(() => {
     void api.getSession(sessionId).then((s) => {
       if (!s) return;
       played = new Set(s.played);
       renderLocal();
+      updateNowPlaying(s.nowPlaying ?? null, s.nowPlayingAt ?? null);
     });
   }, 8000);
 }

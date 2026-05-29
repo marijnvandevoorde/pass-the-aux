@@ -2360,9 +2360,14 @@ function render(): void {
     saveSession(); // persist config/queue/played/offset
     if (sessionId && automix.on) {
       // report what we've played, pull crowd adds, append them
-      // live to the automix queue.
+      // live to the automix queue. Also push the currently-playing
+      // track so the crowd page can show "Now Playing".
       const sid = sessionId;
-      void api.syncSession(sid, history.snapshot()).then((pending) => {
+      const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
+      const nowPlaying = playingDeck?.track
+        ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path }
+        : null;
+      void api.syncSession(sid, history.snapshot(), nowPlaying).then((pending) => {
         for (const t of pending) {
           if (history.has(t.path)) continue;
           automix.enqueue({ name: t.name, path: t.path, bpm: t.bpm });
