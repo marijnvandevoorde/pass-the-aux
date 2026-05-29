@@ -2321,32 +2321,16 @@ body.dragging::after {
     overflow: hidden;
     display: flex; align-items: center; justify-content: center;
     -webkit-tap-highlight-color: transparent;
-    /* prevent text selection and iOS callout on long-press */
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
-    touch-action: none;
+    transition: opacity 0.1s, transform 0.1s;
   }
-  #mob-skip:active { opacity: 0.8; }
-  .mob-skip-label { position: relative; z-index: 1; pointer-events: none; }
-  .mob-skip-fill {
-    position: absolute;
-    inset: 0;
-    background: var(--accent);
-    transform: scaleX(0);
-    transform-origin: left;
-    border-radius: inherit;
-    pointer-events: none;
-    transition: none;
+  #mob-skip:active { opacity: 0.7; transform: scale(0.94); }
+  .mob-skip-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
   }
-  #mob-skip.pressing .mob-skip-fill {
-    transform: scaleX(1);
-    transition: transform 700ms linear;
-  }
-  #mob-skip.fired {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
+  .mob-skip-fill { display: none; }
 
   /* Workspace fills all remaining height. */
   #workspace {

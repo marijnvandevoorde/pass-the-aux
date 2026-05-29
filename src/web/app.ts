@@ -1223,27 +1223,7 @@ function wireGlobal(): void {
     else if (decks.B.track) decks.B.play();
   });
 
-  let skipTimer: ReturnType<typeof setTimeout> | null = null;
-  const SKIP_MS = 700;
-
-  const cancelSkip = (): void => {
-    if (skipTimer !== null) { clearTimeout(skipTimer); skipTimer = null; }
-    mobSkip.classList.remove("pressing");
-  };
-  mobSkip.addEventListener("pointerdown", (e) => {
-    e.preventDefault(); // prevent ghost click
-    mobSkip.classList.add("pressing");
-    skipTimer = setTimeout(() => {
-      skipTimer = null;
-      mobSkip.classList.remove("pressing");
-      mobSkip.classList.add("fired");
-      setTimeout(() => mobSkip.classList.remove("fired"), 300);
-      void automix.fadeNow();
-    }, SKIP_MS);
-  });
-  mobSkip.addEventListener("pointerup", cancelSkip);
-  mobSkip.addEventListener("pointercancel", cancelSkip);
-  mobSkip.addEventListener("contextmenu", (e) => e.preventDefault());
+  mobSkip.addEventListener("click", () => void automix.fadeNow());
 
   must<HTMLButtonElement>("#session-share").onclick = async () => {
     if (!qrPanel.hidden) {
