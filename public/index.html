@@ -244,24 +244,34 @@
 
     <!-- Mobile now-playing panel: portrait = tap bar to open; landscape = always shown -->
     <div id="mob-np-panel">
-      <div class="mob-np-topbar">
+      <!-- Header: back + title + artist -->
+      <div class="mob-np-header">
         <button id="mob-np-close" class="mob-np-close" aria-label="Back">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3L5 9l6 6"/></svg>
         </button>
-        <div class="mob-np-meta">
+        <div class="mob-np-info">
           <span id="mob-np-title">— no track —</span>
           <span id="mob-np-sub" class="mob-np-sub"></span>
         </div>
       </div>
+      <!-- Cover art -->
+      <div class="mob-np-cover-wrap">
+        <img id="mob-np-cover" class="mob-np-cover" alt="" hidden>
+        <div id="mob-np-cover-ph" class="mob-np-cover-ph">♫</div>
+      </div>
+      <!-- Waveform + scrubber -->
       <canvas id="mob-waveform" class="mob-waveform"></canvas>
       <div class="mob-np-scrub">
         <span id="mob-np-elapsed" class="mob-np-time">0:00</span>
         <input id="mob-scrubber" type="range" min="0" max="1" step="0.001" value="0">
         <span id="mob-np-remain" class="mob-np-time"></span>
       </div>
-      <div class="mob-np-btns">
+      <!-- Controls -->
+      <div class="mob-np-controls">
         <button id="mob-np-play" class="mob-np-btn-play">▶</button>
-        <button id="mob-np-skip" class="mob-np-btn-skip">⏭ Skip</button>
+        <button id="mob-np-skip" class="mob-np-btn-skip" aria-label="Skip to next">
+          <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 3l6 5-6 5V3zm7 0h2v10h-2V3z"/></svg>
+        </button>
       </div>
     </div>
 

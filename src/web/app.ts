@@ -133,6 +133,8 @@ let sortDir = 1; // 1 asc, -1 desc
 let autoFill = false;
 /** true while the user is dragging the mobile scrubber — prevents render() fighting the thumb. */
 let mobScrubberDragging = false;
+/** path of the track whose cover is currently loaded in the panel — avoids thrashing img.src. */
+let mobNpCoverPath: string | null = null;
 /** throttle clock for session autosave. */
 let lastSessionSave = 0;
 /** shared (server) session id once Automix starts. */
@@ -2498,18 +2500,34 @@ function render(): void {
       const remainEl = document.getElementById("mob-np-remain");
       if (remainEl) remainEl.textContent = total > 0 ? `-${fmtTime(total - elapsed)}` : "";
 
-      // Track info
+      // Track info + cover art (only update when track changes)
+      const currentPath = deck.track?.path ?? null;
+      const lib = currentPath ? tracks.find((t) => t.path === currentPath) : null;
+
       const titleEl = document.getElementById("mob-np-title");
       if (titleEl) titleEl.textContent = deck.track?.name ?? "— no track —";
       const subEl = document.getElementById("mob-np-sub");
       if (subEl) {
-        const lib = deck.track?.path
-          ? tracks.find((t) => t.path === deck.track!.path)
-          : null;
         const parts: string[] = [];
         if (lib?.artist) parts.push(lib.artist);
         if (lib?.bpm) parts.push(`${Math.round(lib.bpm)} BPM`);
         subEl.textContent = parts.join(" · ");
+      }
+
+      if (currentPath !== mobNpCoverPath) {
+        mobNpCoverPath = currentPath;
+        const coverEl = document.getElementById("mob-np-cover") as HTMLImageElement | null;
+        const coverPh = document.getElementById("mob-np-cover-ph");
+        if (coverEl) {
+          if (currentPath) {
+            coverEl.src = "/api/cover?path=" + encodeURIComponent(currentPath);
+            coverEl.hidden = false;
+            coverEl.onerror = () => { coverEl.hidden = true; };
+          } else {
+            coverEl.hidden = true;
+          }
+        }
+        if (coverPh) coverPh.style.display = "";
       }
 
       // Play button state
