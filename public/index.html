@@ -243,6 +243,12 @@
     </div>
 
     <div id="workspace">
+      <!-- Mobile tab bar — hidden on desktop via CSS -->
+      <div id="mob-tabs">
+        <button id="mob-tab-queue"   class="mob-tab" aria-selected="true">Queue</button>
+        <button id="mob-tab-library" class="mob-tab" aria-selected="false">Library</button>
+      </div>
+
       <section id="lib-crates">
         <div id="library" role="tabpanel" ondragover="event.preventDefault()">
           <div class="lib-headrow">
@@ -294,6 +300,14 @@
 
       <aside id="queue-side">
         <section id="automix">
+          <!-- Mobile queue header (title + count + Reset + Clear; shown only on mobile) -->
+          <div class="mob-q-head">
+            <span class="mob-q-title">Up Next</span>
+            <span id="mob-q-count" class="mob-q-count"></span>
+            <button class="mob-q-reset" id="mob-q-reset">Reset</button>
+            <button class="mob-q-clear" id="mob-q-clear">Clear</button>
+          </div>
+          <!-- Desktop queue toolbar (hidden on mobile) -->
           <div class="am-head">
             <button id="am-toggle" class="am-off">AUTOMIX: OFF</button>
             <button id="am-clear">Clear queue</button>
@@ -305,7 +319,18 @@
             <span id="am-status">queue empty</span>
           </div>
           <ol id="queue-list"></ol>
+          <!-- Mobile empty state (hidden when queue has items) -->
+          <div id="mob-q-empty" class="mob-q-empty" hidden>
+            <span class="mob-q-empty-icon">♫</span>
+            <p class="mob-q-empty-text">Queue is empty</p>
+            <p class="mob-q-empty-sub">Add tracks from the Library tab</p>
+          </div>
         </section>
+        <!-- Mobile FAB: switch to Library tab -->
+        <button id="mob-fab-library" class="mob-fab">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M7 1v12M1 7h12"/></svg>
+          Library
+        </button>
         <div class="qs-foot">
           <span id="app-version" title="Build stamp — confirms you're on the latest deploy">v{{APP_VERSION}}</span>
         </div>

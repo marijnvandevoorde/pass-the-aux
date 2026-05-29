@@ -2179,6 +2179,14 @@ body.dragging::after {
   display: none;
 }
 
+/* ── Mobile-only elements (hidden on desktop) ─────────────────── */
+#mob-tabs,
+.mob-q-head,
+.mob-q-empty,
+.mob-fab {
+  display: none;
+}
+
 /* ── Mobile party mode (≤ 640 px) ─────────────────────────────── */
 @media (max-width: 640px) {
   /* Strip the header down to logo + Share button only. */
@@ -2332,27 +2340,169 @@ body.dragging::after {
   }
   .mob-skip-fill { display: none; }
 
-  /* Workspace fills all remaining height. */
-  #workspace {
-    padding: 0 0 0;
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+  /* ── Mobile tab bar ─────────────────────────────────── */
+  #mob-tabs {
+    display: flex;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
   }
-
-  /* Queue: hide automix + autofill toggles (always on); show reset. */
-  #am-toggle, #am-autofill { display: none; }
-  #am-clear-played {
-    order: -1;
+  .mob-tab {
+    flex: 1;
+    height: 40px;
+    /* Reset global button chrome */
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    font-size: 13px;
     font-weight: 600;
-    color: var(--text);
-    background: var(--surface-2, #1f2433);
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    padding: 5px 14px;
+    color: var(--faint);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    letter-spacing: 0.01em;
+  }
+  .mob-tab:hover { border-color: transparent; }
+  .mob-tab:active { transform: none; }
+  .mob-tab[aria-selected="true"] {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
   }
 
-  /* Queue gets a reasonable max height so library stays visible. */
-  #queue-side { max-height: 45vh; }
+  /* ── Workspace: tab layout ───────────────────────────── */
+  #workspace {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* Both panels hidden until the active tab shows one. */
+  #lib-crates,
+  #queue-side {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+  }
+  #workspace:not([data-mob-tab="library"]) #queue-side { display: flex; }
+  #workspace[data-mob-tab="library"]       #lib-crates  { display: flex; }
+
+  /* Remove desktop panel chrome inside the tab panels. */
+  #library,
+  #automix {
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    flex: 1;
+  }
+  #library[hidden] { display: none; }
+
+  /* ── Queue header (mobile) ───────────────────────────── */
+  .mob-q-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px 8px;
+    gap: 8px;
+    border-bottom: 1px solid var(--line-soft);
+    flex-shrink: 0;
+  }
+  .mob-q-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex: 1;
+  }
+  .mob-q-count {
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .mob-q-reset,
+  .mob-q-clear {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 13px;
+    border: 1px solid var(--line);
+    background: var(--surface-2, #1f2433);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--faint);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+  }
+  .mob-q-clear:active { color: var(--danger); border-color: var(--danger); }
+
+  /* Hide desktop queue toolbar on mobile */
+  .am-head { display: none; }
+  #am-toggle, #am-autofill { display: none; }
+
+  /* ── Queue list ──────────────────────────────────────── */
+  #queue-list {
+    padding: 6px 10px;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Queue empty state ───────────────────────────────── */
+  .mob-q-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 60px 30px;
+    text-align: center;
+    flex: 1;
+  }
+  .mob-q-empty[hidden] { display: none; }
+  .mob-q-empty-icon { font-size: 32px; opacity: 0.25; line-height: 1; }
+  .mob-q-empty-text { font-size: 14px; font-weight: 600; color: var(--dim); margin: 0; }
+  .mob-q-empty-sub  { font-size: 12px; color: var(--faint); margin: 0; }
+
+  /* ── Suppress old CSS-generated queue-empty hint ────── */
+  #queue-list:empty::after { content: none; }
+
+  /* ── FAB: open Library tab ───────────────────────────── */
+  /* Hide version footer so the FAB has clean bottom space */
+  .qs-foot { display: none; }
+
+  #queue-side { position: relative; }
+  .mob-fab {
+    position: absolute;
+    bottom: 16px;
+    right: 14px;
+    height: 44px;
+    padding: 0 18px;
+    border-radius: 22px;
+    background: var(--accent);
+    border: none;
+    box-shadow: 0 4px 20px rgba(56, 224, 196, 0.3);
+    color: #04201b;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+    transition: transform 0.1s;
+    z-index: 5;
+  }
+  .mob-fab:active { transform: scale(0.94); }
+
+  /* ── Fix search icon / placeholder overlap ───────────── */
+  #lib-search {
+    padding-left: 28px;
+  }
 }
 
 /* Bigger hit targets on touch devices. */

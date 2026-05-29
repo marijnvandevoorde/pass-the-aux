@@ -1,40 +1,37 @@
 /**
- * Creates test/visual/test.sqlite — a minimal seed database for local
- * visual testing. Copies track data from the real DJSHNOOPSIES db so
- * the library shows real songs. No user rows are copied; the server
- * runs with auth disabled (no SESSION_SECRET), so no login is needed.
+ * Creates/resets test/visual/test.sqlite — a minimal seed database for
+ * visual testing. Inserts analysis rows from the OGG files in ./music
+ * so the library shows real tracks without needing a production database.
+ * No users — the server runs auth-disabled (no SESSION_SECRET).
  *
  * Usage:  node test/visual/seed-db.mjs
- * Re-run any time to reset the db to a clean state.
+ * Or:     npm run seed-db
+ *
+ * Then start the server with:
+ *   npm run visual-server
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readdirSync, statSync, existsSync, unlinkSync, mkdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
-const DIR  = dirname(fileURLToPath(import.meta.url));
-const OUT  = join(DIR, 'test.sqlite');
-const SRC  = join(homedir(), 'Sites/marijnvandevoorde/DJSHNOOPSIES/data/pass-the-aux.sqlite');
+const DIR       = dirname(fileURLToPath(import.meta.url));
+const ROOT      = resolve(DIR, '../..');
+const MUSIC_DIR = join(ROOT, 'music');
+const OUT       = join(DIR, 'test.sqlite');
 
-if (!existsSync(SRC)) {
-  console.error(`Source db not found: ${SRC}`);
-  process.exit(1);
-}
-
-// Nuke and recreate the output db
-if (existsSync(OUT)) {
-  const { unlinkSync } = await import('node:fs');
-  unlinkSync(OUT);
+// Wipe any leftover WAL files alongside the main db.
+for (const f of [OUT, OUT + '-shm', OUT + '-wal']) {
+  if (existsSync(f)) unlinkSync(f);
 }
 mkdirSync(DIR, { recursive: true });
 
-const src = new DatabaseSync(SRC);
-const dst = new DatabaseSync(OUT);
+const db = new DatabaseSync(OUT);
+db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA synchronous = NORMAL');
 
-// ── Schema ──────────────────────────────────────────────────────────────────
-dst.exec(`
+db.exec(`
   CREATE TABLE analysis (
     user_id     TEXT    NOT NULL,
     track_id    TEXT    NOT NULL,
@@ -54,15 +51,24 @@ dst.exec(`
   CREATE INDEX idx_analysis_user_bpm    ON analysis (user_id, bpm);
   CREATE INDEX idx_analysis_user_energy ON analysis (user_id, energy);
 
+  CREATE TABLE crates (
+    user_id   TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    track_ids TEXT NOT NULL,
+    PRIMARY KEY (user_id, name)
+  );
+
   CREATE TABLE beat_grids (
-    user_id       TEXT    NOT NULL,
-    track_id      TEXT    NOT NULL,
-    duration_sec  REAL    NOT NULL,
-    beats_json    TEXT    NOT NULL,
-    downbeat_phase INTEGER NOT NULL DEFAULT 0,
-    first_solid_cue_sec REAL,
-    confidence    REAL    NOT NULL DEFAULT 0,
-    analyzed_at   INTEGER NOT NULL,
+    user_id           TEXT    NOT NULL,
+    track_id          TEXT    NOT NULL,
+    duration_sec      REAL    NOT NULL,
+    beat_count        INTEGER NOT NULL,
+    downbeat_phase    INTEGER NOT NULL,
+    first_solid_index INTEGER NOT NULL,
+    confidence        REAL    NOT NULL,
+    analyzer_version  INTEGER NOT NULL,
+    analyzed_at       INTEGER NOT NULL,
+    beats_blob        BLOB    NOT NULL,
     PRIMARY KEY (user_id, track_id)
   );
 
@@ -74,53 +80,43 @@ dst.exec(`
     totp_secret    TEXT,
     totp_enabled   INTEGER NOT NULL DEFAULT 0,
     recovery_codes TEXT,
-    created_at     INTEGER NOT NULL,
-    plan           TEXT    NOT NULL DEFAULT 'free'
-  );
-
-  CREATE TABLE crates (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    TEXT    NOT NULL,
-    name       TEXT    NOT NULL,
-    track_ids  TEXT    NOT NULL DEFAULT '[]',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    plan           TEXT    NOT NULL DEFAULT 'free',
+    created_at     INTEGER NOT NULL
   );
 
   CREATE TABLE remote_libraries (
     id         TEXT    PRIMARY KEY NOT NULL,
     user_id    TEXT    NOT NULL,
-    kind       TEXT    NOT NULL DEFAULT 'pta',
+    kind       TEXT    NOT NULL,
     name       TEXT    NOT NULL,
     base_url   TEXT,
-    secret     TEXT,
     api_key    TEXT,
     is_active  INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    created_at INTEGER NOT NULL
   );
+  CREATE INDEX idx_remote_libraries_user ON remote_libraries (user_id, is_active);
 `);
 
-// ── Copy analysis rows — remap to user_id "" (auth-disabled owner) ──────────
-const rows = src.prepare('SELECT * FROM analysis').all();
-const ins  = dst.prepare(`
-  INSERT INTO analysis
-    (user_id, track_id, bpm, size, mtime, analyzed_at, key, mode, camelot, energy, artist, title)
-  VALUES
-    ('', :track_id, :bpm, :size, :mtime, :analyzed_at, :key, :mode, :camelot, :energy, :artist, :title)
+const ins = db.prepare(`
+  INSERT INTO analysis (user_id, track_id, bpm, size, mtime, analyzed_at)
+  VALUES ('', :track_id, NULL, :size, :mtime, :analyzed_at)
 `);
 
-dst.exec('BEGIN');
-for (const r of rows) {
-  ins.run({
-    track_id: r.track_id, bpm: r.bpm, size: r.size, mtime: r.mtime,
-    analyzed_at: r.analyzed_at, key: r.key, mode: r.mode,
-    camelot: r.camelot, energy: r.energy, artist: r.artist, title: r.title,
-  });
+const oggs = readdirSync(MUSIC_DIR)
+  .filter(f => f.toLowerCase().endsWith('.ogg'))
+  .sort();
+
+const now = Date.now();
+
+db.exec('BEGIN');
+for (const f of oggs) {
+  const st = statSync(join(MUSIC_DIR, f));
+  ins.run({ track_id: f, size: st.size, mtime: Math.round(st.mtimeMs), analyzed_at: now });
 }
-dst.exec('COMMIT');
+db.exec('COMMIT');
+db.close();
 
-src.close();
-dst.close();
-
-console.log(`Seeded ${rows.length} tracks into ${OUT}`);
-console.log(`\nStart the server with:`);
-console.log(`  MUSIC_DIR=./music SQLITE_PATH=test/visual/test.sqlite node server.ts`);
+console.log(`Seeded ${oggs.length} track(s) into ${OUT}`);
+console.log('  ' + oggs.join('\n  '));
+console.log('\nStart the server with:');
+console.log('  npm run visual-server');

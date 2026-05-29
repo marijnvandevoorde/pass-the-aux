@@ -10,9 +10,9 @@
  *   npm run visual-test
  *
  * The server must be running on localhost:5174 before invoking this.
- * Start it with:  MUSIC_DIR=./music SQLITE_PATH=./data/dev.sqlite \
- *                 REGISTRATION_OPEN=on SESSION_SECRET=devsecretXXXXXXXXX \
- *                 node server.ts
+ * Set up and start it with:
+ *   npm run seed-db       # creates/resets test/visual/test.sqlite from ./music OGGs
+ *   npm run visual-server # starts the server against that db (no auth)
  *
  * To update baselines after an intentional UI change:
  *   npm run visual-test -- --update

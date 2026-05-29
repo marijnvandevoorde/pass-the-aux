@@ -551,6 +551,14 @@ function startLiveUpdates(): void {
 function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   const list = must<HTMLOListElement>("#queue-list");
   list.innerHTML = "";
+
+  // Mobile: update count badge and toggle empty state / FAB visibility.
+  const countEl = document.getElementById("mob-q-count");
+  if (countEl) countEl.textContent = queue.length > 0 ? String(queue.length) : "";
+  const emptyEl = document.getElementById("mob-q-empty");
+  if (emptyEl) emptyEl.hidden = queue.length > 0;
+  const fabEl = document.getElementById("mob-fab-library");
+  if (fabEl) fabEl.hidden = queue.length > 0;
   queue.forEach((t, i) => {
     const li = document.createElement("li");
     li.draggable = true;
@@ -1458,6 +1466,30 @@ function wireGlobal(): void {
       }
     });
   });
+
+  // ── Mobile Queue / Library tabs ───────────────────────────────────
+  const workspace = document.getElementById("workspace");
+  const setMobTab = (tab: "queue" | "library"): void => {
+    if (workspace) workspace.dataset.mobTab = tab;
+    document.getElementById("mob-tab-queue")
+      ?.setAttribute("aria-selected", tab === "queue" ? "true" : "false");
+    document.getElementById("mob-tab-library")
+      ?.setAttribute("aria-selected", tab === "library" ? "true" : "false");
+  };
+  document.getElementById("mob-tab-queue")
+    ?.addEventListener("click", () => setMobTab("queue"));
+  document.getElementById("mob-tab-library")
+    ?.addEventListener("click", () => setMobTab("library"));
+  document.getElementById("mob-fab-library")
+    ?.addEventListener("click", () => setMobTab("library"));
+
+  // Mobile Reset / Clear proxy buttons delegate to the desktop controls.
+  document.getElementById("mob-q-reset")
+    ?.addEventListener("click", () =>
+      must<HTMLButtonElement>("#am-clear-played").click());
+  document.getElementById("mob-q-clear")
+    ?.addEventListener("click", () =>
+      must<HTMLButtonElement>("#am-clear").click());
 
   renderQueue(automix.queue, automix);
   setToggleUI(false, null);
