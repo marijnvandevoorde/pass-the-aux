@@ -18,8 +18,8 @@ https://passtheaux.small-victories.co.
 username: demo,
 password: demodemo
 
-Limtations: you can't add songs, you can't connect remotes. you can just play with it and use the 3 songs in the library. 
-One fun thing: you can drag a song on your local drive to Deck A. I'll see if I can fix so  you can add it to both decks, the library, and the queue as well. Keep in mind that this will not do decent beat analysis and files will not be stored
+Limitations: you can't add songs, you can't connect remotes — just play with the 3 songs in the library.
+You can also drag audio files from your local drive onto the app: drop on a deck to load it, on the queue panel to enqueue it, or on the library to add it to a local session-only section. Beat analysis runs in-browser (good for tracks with a clear beat); files are not stored server-side.
 
 ## Features
 
@@ -47,7 +47,7 @@ One fun thing: you can drag a song on your local drive to Deck A. I'll see if I 
 - **Extended search** — search across your configured remote record
   stores (self-hosted Pass the Aux servers, Jamendo, etc.) and import a
   track straight into your local library.
-- Bonus: drag any audio file from your OS onto the page to load it.
+- **Local file drop** — drag any audio file from your OS onto a deck to load it, onto the queue panel to enqueue it, or onto the library to add it to a local session section (not uploaded; memory-only). Multi-file drop supported on the library target.
 
 ## Remote record stores
 
@@ -103,8 +103,8 @@ Tests swap in-memory fakes for the ports.
 
 ## Run
 
-Requires **Node ≥ 24** (native TypeScript type-stripping + stable
-`node:sqlite`). Use `nvm use 24` first if your default is older.
+Requires **Node ≥ 26** (native TypeScript type-stripping + stable
+`node:sqlite`). Use `nvm use 26` first if your default is older.
 
 ```bash
 git clone https://github.com/marijnvandevoorde/pass-the-aux.git
@@ -128,7 +128,7 @@ docker compose up --build         # http://localhost:5174
 `docker-compose.yml` brings up just the mixer on a shared bridge network
 named `pta`. `docker-compose.prod.yml` is the same behind Traefik.
 
-The image targets **Node 24+**; a multi-stage build compiles the browser
+The image targets **Node 26+**; a multi-stage build compiles the browser
 bundle and the runtime stage ships no dependencies. Mount your library by
 editing the `volumes:` entry in `docker-compose.yml`.
 
