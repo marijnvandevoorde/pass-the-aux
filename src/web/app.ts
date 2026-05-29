@@ -112,6 +112,16 @@ function nonPlayingDeck(): DeckId {
   if (!decks.B.track) return "B";
   return focused === "A" ? "B" : "A";
 }
+/** The deck whose state the mobile now-playing panel should reflect:
+ *  whichever deck is currently playing, else whichever has a track loaded. */
+function activeMobileDeck(): { deck: Deck; id: DeckId } {
+  const id: DeckId =
+    decks.A.isPlaying ? "A" :
+    decks.B.isPlaying ? "B" :
+    decks.A.track     ? "A" : "B";
+  return { deck: decks[id], id };
+}
+
 /** Tracks played/queued this session. */
 const history = new SessionHistory();
 /** Library table sort. */
@@ -121,6 +131,8 @@ let sortDir = 1; // 1 asc, -1 desc
 
 /** keep the queue fed from the library when it empties. */
 let autoFill = false;
+/** true while the user is dragging the mobile scrubber — prevents render() fighting the thumb. */
+let mobScrubberDragging = false;
 /** throttle clock for session autosave. */
 let lastSessionSave = 0;
 /** shared (server) session id once Automix starts. */
@@ -1491,6 +1503,40 @@ function wireGlobal(): void {
     ?.addEventListener("click", () =>
       must<HTMLButtonElement>("#am-clear").click());
 
+  // ── Mobile now-playing panel ───────────────────────────────────
+  const openNpPanel  = (): void => document.body.classList.add("mob-np-open");
+  const closeNpPanel = (): void => document.body.classList.remove("mob-np-open");
+  must<HTMLElement>("#mob-now-playing").addEventListener("click", openNpPanel);
+  document.getElementById("mob-np-close")?.addEventListener("click", closeNpPanel);
+
+  // Play / skip delegate to existing mobile-bar handlers.
+  document.getElementById("mob-np-play")?.addEventListener("click", () =>
+    must<HTMLButtonElement>("#mob-play").click());
+  document.getElementById("mob-np-skip")?.addEventListener("click", () =>
+    void automix.fadeNow());
+
+  // Scrubber — seek on release; flag prevents render() fighting the thumb while dragging.
+  const mobScrubEl = document.getElementById("mob-scrubber") as HTMLInputElement | null;
+  mobScrubEl?.addEventListener("pointerdown",  () => { mobScrubberDragging = true; });
+  mobScrubEl?.addEventListener("pointerup",    () => { mobScrubberDragging = false; });
+  mobScrubEl?.addEventListener("pointercancel",() => { mobScrubberDragging = false; });
+  mobScrubEl?.addEventListener("change", () => {
+    const v = parseFloat(mobScrubEl.value);
+    const { deck } = activeMobileDeck();
+    if (deck.duration > 0) deck.seek(v * deck.duration);
+  });
+
+  // Keep the canvas pixel dimensions in sync with its CSS size.
+  const mobWaveCanvas = document.getElementById("mob-waveform") as HTMLCanvasElement | null;
+  if (mobWaveCanvas) {
+    const sizeMobWave = (): void => {
+      mobWaveCanvas.width  = mobWaveCanvas.clientWidth;
+      mobWaveCanvas.height = mobWaveCanvas.clientHeight;
+    };
+    sizeMobWave();
+    new ResizeObserver(sizeMobWave).observe(mobWaveCanvas);
+  }
+
   renderQueue(automix.queue, automix);
   setToggleUI(false, null);
   setFocus("A");
@@ -2424,6 +2470,52 @@ function render(): void {
     must<HTMLElement>("#mob-bpm").textContent = trackForBar?.bpm ? `${Math.round(trackForBar.bpm)} BPM` : "";
     must<HTMLButtonElement>("#mob-play").textContent = playing ? "❚❚" : "▶";
     must<HTMLElement>("#mob-dot").classList.toggle("paused", !playing);
+  }
+
+  // ── Mobile now-playing panel ────────────────────────────────────
+  {
+    const panelOpen =
+      document.body.classList.contains("mob-np-open") ||
+      window.matchMedia("(orientation: landscape) and (max-height: 500px)").matches;
+    if (panelOpen) {
+      const { deck, id } = activeMobileDeck();
+
+      // Waveform
+      const mobCanvas = document.getElementById("mob-waveform") as HTMLCanvasElement | null;
+      if (mobCanvas && mobCanvas.width > 0 && mobCanvas.height > 0) {
+        drawWave(deck, mobCanvas, id);
+      }
+
+      // Scrubber + time
+      const elapsed = deck.currentTime;
+      const total   = deck.duration;
+      if (!mobScrubberDragging) {
+        const scrubEl = document.getElementById("mob-scrubber") as HTMLInputElement | null;
+        if (scrubEl) scrubEl.value = String(total > 0 ? elapsed / total : 0);
+      }
+      const elapsedEl = document.getElementById("mob-np-elapsed");
+      if (elapsedEl) elapsedEl.textContent = fmtTime(elapsed);
+      const remainEl = document.getElementById("mob-np-remain");
+      if (remainEl) remainEl.textContent = total > 0 ? `-${fmtTime(total - elapsed)}` : "";
+
+      // Track info
+      const titleEl = document.getElementById("mob-np-title");
+      if (titleEl) titleEl.textContent = deck.track?.name ?? "— no track —";
+      const subEl = document.getElementById("mob-np-sub");
+      if (subEl) {
+        const lib = deck.track?.path
+          ? tracks.find((t) => t.path === deck.track!.path)
+          : null;
+        const parts: string[] = [];
+        if (lib?.artist) parts.push(lib.artist);
+        if (lib?.bpm) parts.push(`${Math.round(lib.bpm)} BPM`);
+        subEl.textContent = parts.join(" · ");
+      }
+
+      // Play button state
+      const npPlay = document.getElementById("mob-np-play");
+      if (npPlay) npPlay.textContent = deck.isPlaying ? "❚❚" : "▶";
+    }
   }
 
   const tnow = performance.now();

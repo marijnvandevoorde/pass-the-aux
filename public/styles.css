@@ -2183,8 +2183,19 @@ body.dragging::after {
 #mob-tabs,
 .mob-q-head,
 .mob-q-empty,
-.mob-fab {
+.mob-fab,
+#mob-np-panel {
   display: none;
+}
+
+/* ── Now-playing panel base (position always fixed when shown) ── */
+#mob-np-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--bg);
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ── Mobile party mode (≤ 640 px) ─────────────────────────────── */
@@ -2503,6 +2514,104 @@ body.dragging::after {
   #lib-search {
     padding-left: 28px;
   }
+
+  /* ── Now-playing panel (portrait: tap bar to open) ───── */
+  #mob-now-playing { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+  body.mob-np-open #mob-np-panel { display: flex; }
+
+  .mob-np-topbar {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px 10px;
+    gap: 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .mob-np-close {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface-2, #1f2433);
+    color: var(--dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+    box-shadow: none; padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mob-np-close:hover { border-color: var(--accent); }
+  .mob-np-meta {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 3px;
+    overflow: hidden;
+  }
+  #mob-np-title {
+    font-size: 15px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mob-np-sub {
+    font-size: 12px; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mob-waveform {
+    width: 100%; flex: 1; min-height: 0; display: block;
+  }
+  .mob-np-scrub {
+    display: flex; align-items: center;
+    padding: 10px 14px; gap: 10px; flex-shrink: 0;
+  }
+  .mob-np-time {
+    font-size: 11px; color: var(--faint);
+    font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 34px;
+  }
+  #mob-scrubber {
+    flex: 1; height: 4px;
+    -webkit-appearance: none; appearance: none;
+    background: var(--line); border-radius: 2px;
+    cursor: pointer; padding: 0; border: none; box-shadow: none;
+  }
+  #mob-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%; background: var(--accent); cursor: pointer;
+  }
+  #mob-scrubber::-moz-range-thumb {
+    width: 18px; height: 18px;
+    border-radius: 50%; background: var(--accent);
+    border: none; cursor: pointer;
+  }
+  .mob-np-btns {
+    display: flex; gap: 10px;
+    padding: 10px 14px 16px; flex-shrink: 0;
+  }
+  .mob-np-btn-play {
+    flex: 1; height: 52px; border-radius: 14px;
+    background: var(--accent); border: none; box-shadow: none;
+    color: #04201b; font-size: 20px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mob-np-btn-play:active { transform: scale(0.96); }
+  .mob-np-btn-skip {
+    height: 52px; padding: 0 22px; border-radius: 14px;
+    background: var(--surface-2, #1f2433);
+    border: 1px solid var(--line); box-shadow: none;
+    color: var(--text); font-size: 13px; font-weight: 600;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .mob-np-btn-skip:active { opacity: 0.7; transform: none; }
+}
+
+/* ── Landscape phone: now-playing panel full-screen ──────────── */
+@media (orientation: landscape) and (max-height: 500px) {
+  main, #workspace { display: none; }
+  #mobile-bar { display: none; } /* panel has its own controls */
+  #mob-np-panel { display: flex; }
+  .mob-np-close { display: none; } /* rotate back to dismiss */
+  /* Tighter padding in landscape */
+  .mob-np-topbar { padding: 8px 14px; }
+  .mob-np-scrub  { padding: 6px 14px; }
+  .mob-np-btns   { padding: 8px 14px; }
+  .mob-np-btn-play, .mob-np-btn-skip { height: 44px; }
 }
 
 /* Bigger hit targets on touch devices. */
