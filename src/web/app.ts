@@ -1253,6 +1253,11 @@ function wireGlobal(): void {
     qrPanel.hidden = false;
   };
 
+  // Mobile QR close button
+  must<HTMLButtonElement>("#qr-close").addEventListener("click", () => {
+    qrPanel.hidden = true;
+  });
+
   sidEl.onchange = () => {
     sidEl.value = cleanId(sidEl.value) || defaultSessionId();
     if (sessionId || automix.on) void ensureSession(true);

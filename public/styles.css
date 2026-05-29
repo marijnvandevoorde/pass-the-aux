@@ -1408,6 +1408,16 @@ select.r-q {
   color: var(--dim);
   font-size: 12px;
 }
+@media (max-width: 640px) {
+  #queue-list:empty::after {
+    content: "Queue empty — tap + Queue on any track in the library to add it.";
+  }
+  /* Analyze BPM button and BPM filter not useful on mobile party view */
+  #analyze-all { display: none; }
+  #lib-bpm { display: none; }
+  /* Drop hint text is desktop-focused; hide on mobile */
+  .drop-hint { display: none; }
+}
 
 #queue-list li {
   counter-increment: q;
@@ -2171,6 +2181,62 @@ body.dragging::after {
 
 /* ── Mobile party mode (≤ 640 px) ─────────────────────────────── */
 @media (max-width: 640px) {
+  /* Strip the header down to logo + Share button only. */
+  header {
+    padding: 0 14px;
+    height: 52px;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  /* Hide everything except brand and the Share button */
+  #status,
+  #topright,
+  #session-ctl > label,
+  #session-ctl > input#session-id {
+    display: none !important;
+  }
+  #session-ctl {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  /* QR panel: full-screen overlay on mobile */
+  #sessionqr:not([hidden]) {
+    position: fixed !important;
+    inset: 0;
+    z-index: 100;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: var(--bg);
+    padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+  }
+  #sessionqr canvas {
+    width: min(260px, 72vw) !important;
+    height: min(260px, 72vw) !important;
+    border-radius: 12px;
+  }
+  #sessionqr p { font-size: 15px; text-align: center; color: var(--text); }
+  #sessionqr a { font-size: 13px; color: var(--accent); word-break: break-all; text-align: center; }
+  #qr-close {
+    position: absolute;
+    top: 20px; right: 20px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface-2, #1f2433);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* Hide the close button on desktop — Share toggles it there */
+  #qr-close { display: none; }
+  @media (max-width: 640px) {
+    #qr-close { display: flex; }
+  }
+
   /* Hide the decks entirely — library + queue are the DJ's interface. */
   main { display: none; }
 
