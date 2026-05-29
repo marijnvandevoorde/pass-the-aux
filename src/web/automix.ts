@@ -58,6 +58,7 @@ export class Automix {
 
   enqueue(track: TrackInfo): void {
     this.#queue.push({
+      ...(track.id !== undefined && { id: track.id }),
       name: track.name,
       path: track.path,
       bpm: track.bpm ?? null,
