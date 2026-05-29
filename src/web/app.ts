@@ -122,6 +122,23 @@ function activeMobileDeck(): { deck: Deck; id: DeckId } {
   return { deck: decks[id], id };
 }
 
+/** Switch the mobile Queue/Library tab. Safe to call at any time. */
+function setMobTab(tab: "queue" | "library"): void {
+  const ws = document.getElementById("workspace");
+  if (ws) ws.dataset.mobTab = tab;
+  document.getElementById("mob-tab-queue")
+    ?.setAttribute("aria-selected", tab === "queue" ? "true" : "false");
+  document.getElementById("mob-tab-library")
+    ?.setAttribute("aria-selected", tab === "library" ? "true" : "false");
+}
+
+/** Ensure the AudioContext is running before audio output. Required on iOS
+ *  where the context can be re-suspended after backgrounding. Must be called
+ *  from a user-gesture handler; ctx.resume() is a no-op when already running. */
+async function ensureCtxRunning(): Promise<void> {
+  if (ctx.state !== "running") await ctx.resume();
+}
+
 /** Tracks played/queued this session. */
 const history = new SessionHistory();
 /** Library table sort. */
@@ -320,8 +337,10 @@ function renderLocalTracks(): void {
       void loadToDeck(t, "A");
     must<HTMLButtonElement>('[data-act="B"]', row).onclick = () =>
       void loadToDeck(t, "B");
-    must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () =>
+    must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () => {
       automix.enqueue(t);
+      setMobTab("queue");
+    };
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
       e.dataTransfer?.setData(DND_TRACK, JSON.stringify(t));
@@ -390,6 +409,7 @@ function renderList(): void {
     must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () => {
       automix.enqueue(named);
       history.record(named.path);
+      setMobTab("queue"); // mobile: jump to queue so the DJ sees the addition
     };
 
     // Drag a song onto a deck to load it.
@@ -406,6 +426,7 @@ function renderList(): void {
         automix.enqueue(named);
         history.record(named.path);
         setStatus(`queued "${named.name}"`);
+        setMobTab("queue");
       } else {
         void loadToDeck(named, nonPlayingDeck());
       }
@@ -1237,15 +1258,18 @@ function wireGlobal(): void {
   const mobPlay = must<HTMLButtonElement>("#mob-play");
   const mobSkip = must<HTMLButtonElement>("#mob-skip");
 
-  mobPlay.addEventListener("click", () => {
+  mobPlay.addEventListener("click", async () => {
+    await ensureCtxRunning(); // iOS: context may be suspended after backgrounding
     const active = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
     if (active) { active.togglePlay(); return; }
-    // Nothing playing — try to start the non-empty deck.
     if (decks.A.track) decks.A.play();
     else if (decks.B.track) decks.B.play();
   });
 
-  mobSkip.addEventListener("click", () => void automix.fadeNow());
+  mobSkip.addEventListener("click", async () => {
+    await ensureCtxRunning();
+    void automix.fadeNow();
+  });
 
   must<HTMLButtonElement>("#session-share").onclick = async () => {
     if (!qrPanel.hidden) {
@@ -1394,14 +1418,14 @@ function wireGlobal(): void {
     ) {
       return;
     }
-    // Wipe the browser-side history BEFORE the server call. The 3s sync
-    // poll uploads history.snapshot() into the server's played set (via
-    // drain(), which only ever adds), so a server-only clear is re-seeded
-    // within one poll cycle. Clearing here — and persisting it — makes
-    // the next poll report an empty set, so the reset actually sticks.
-    history.clear();
-    saveSession();
     const ok = await api.clearSessionPlayed(sessionId);
+    if (ok) {
+      // Only wipe local history after the server confirms the clear.
+      // Clearing before the call caused the 3 s sync poll to immediately
+      // re-seed the server with an empty set if the network call failed.
+      history.clear();
+      saveSession();
+    }
     setStatus(
       ok
         ? "played history cleared — guests can re-request any track"
@@ -1482,14 +1506,6 @@ function wireGlobal(): void {
   });
 
   // ── Mobile Queue / Library tabs ───────────────────────────────────
-  const workspace = document.getElementById("workspace");
-  const setMobTab = (tab: "queue" | "library"): void => {
-    if (workspace) workspace.dataset.mobTab = tab;
-    document.getElementById("mob-tab-queue")
-      ?.setAttribute("aria-selected", tab === "queue" ? "true" : "false");
-    document.getElementById("mob-tab-library")
-      ?.setAttribute("aria-selected", tab === "library" ? "true" : "false");
-  };
   document.getElementById("mob-tab-queue")
     ?.addEventListener("click", () => setMobTab("queue"));
   document.getElementById("mob-tab-library")
@@ -1506,30 +1522,51 @@ function wireGlobal(): void {
       must<HTMLButtonElement>("#am-clear").click());
 
   // ── Mobile now-playing panel ───────────────────────────────────
-  const openNpPanel  = (): void => document.body.classList.add("mob-np-open");
+  const mobWaveCanvas = document.getElementById("mob-waveform") as HTMLCanvasElement | null;
+  const openNpPanel = (): void => {
+    document.body.classList.add("mob-np-open");
+    // Size the canvas immediately — ResizeObserver fires async so the first
+    // drawWave call would be a no-op on a 0×0 canvas without this.
+    if (mobWaveCanvas && mobWaveCanvas.width === 0) {
+      mobWaveCanvas.width  = mobWaveCanvas.clientWidth;
+      mobWaveCanvas.height = mobWaveCanvas.clientHeight;
+    }
+  };
   const closeNpPanel = (): void => document.body.classList.remove("mob-np-open");
   must<HTMLElement>("#mob-now-playing").addEventListener("click", openNpPanel);
   document.getElementById("mob-np-close")?.addEventListener("click", closeNpPanel);
 
-  // Play / skip delegate to existing mobile-bar handlers.
+  // Panel play delegates to the mobile bar (which has the ctx.resume() guard).
   document.getElementById("mob-np-play")?.addEventListener("click", () =>
     must<HTMLButtonElement>("#mob-play").click());
-  document.getElementById("mob-np-skip")?.addEventListener("click", () =>
-    void automix.fadeNow());
+  // Panel skip needs its own ctx.resume() — it doesn't go through mob-play.
+  document.getElementById("mob-np-skip")?.addEventListener("click", async () => {
+    await ensureCtxRunning();
+    void automix.fadeNow();
+  });
 
-  // Scrubber — seek on release; flag prevents render() fighting the thumb while dragging.
+  // Scrubber: capture the target deck at pointerdown so a deck switch mid-drag
+  // doesn't seek the wrong deck; reset drag flag on visibility change.
   const mobScrubEl = document.getElementById("mob-scrubber") as HTMLInputElement | null;
-  mobScrubEl?.addEventListener("pointerdown",  () => { mobScrubberDragging = true; });
-  mobScrubEl?.addEventListener("pointerup",    () => { mobScrubberDragging = false; });
-  mobScrubEl?.addEventListener("pointercancel",() => { mobScrubberDragging = false; });
+  let scrubTargetDeck: Deck | null = null;
+  mobScrubEl?.addEventListener("pointerdown", () => {
+    mobScrubberDragging = true;
+    scrubTargetDeck = activeMobileDeck().deck;
+  });
+  const clearScrubDrag = (): void => {
+    mobScrubberDragging = false;
+    scrubTargetDeck = null;
+  };
+  mobScrubEl?.addEventListener("pointerup",     clearScrubDrag);
+  mobScrubEl?.addEventListener("pointercancel", clearScrubDrag);
   mobScrubEl?.addEventListener("change", () => {
     const v = parseFloat(mobScrubEl.value);
-    const { deck } = activeMobileDeck();
+    const deck = scrubTargetDeck ?? activeMobileDeck().deck;
     if (deck.duration > 0) deck.seek(v * deck.duration);
+    clearScrubDrag();
   });
 
   // Keep the canvas pixel dimensions in sync with its CSS size.
-  const mobWaveCanvas = document.getElementById("mob-waveform") as HTMLCanvasElement | null;
   if (mobWaveCanvas) {
     const sizeMobWave = (): void => {
       mobWaveCanvas.width  = mobWaveCanvas.clientWidth;
@@ -1538,6 +1575,19 @@ function wireGlobal(): void {
     sizeMobWave();
     new ResizeObserver(sizeMobWave).observe(mobWaveCanvas);
   }
+
+  // Drive automix tick() from a timer so crossfades complete when rAF is throttled
+  // (e.g. tab hidden, screen locked). 500 ms is fast enough to catch end-of-track.
+  setInterval(() => automix.tick(), 500);
+
+  // On visibility change: save session immediately (so the offset is current if the
+  // tab is closed), and reset any in-flight scrubber drag.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      saveSession();
+      clearScrubDrag();
+    }
+  });
 
   renderQueue(automix.queue, automix);
   setToggleUI(false, null);

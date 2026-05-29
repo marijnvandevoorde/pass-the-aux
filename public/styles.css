@@ -2386,6 +2386,7 @@ body.dragging::after {
   /* ── Workspace: tab layout ───────────────────────────── */
   #workspace {
     padding: 0;
+    gap: 0; /* desktop grid gap must not bleed into the flex layout */
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -2401,6 +2402,15 @@ body.dragging::after {
   }
   #workspace:not([data-mob-tab="library"]) #queue-side { display: flex; }
   #workspace[data-mob-tab="library"]       #lib-crates  { display: flex; }
+
+  /* ── Library tab: hide crates and the lib/crates tab bar ─ */
+  #crates, .lct-bar { display: none !important; }
+
+  /* ── Queue list: reset desktop margin; hide when empty (we have mob-q-empty) */
+  #queue-list {
+    margin: 0;
+  }
+  #queue-list:empty { display: none; }
 
   /* Remove desktop panel chrome inside the tab panels. */
   #library,
