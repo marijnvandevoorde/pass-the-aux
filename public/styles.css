@@ -2184,6 +2184,7 @@ body.dragging::after {
 .mob-q-head,
 .mob-q-empty,
 .mob-fab,
+.mob-next-up,
 #mob-np-panel {
   display: none;
 }
@@ -2460,9 +2461,38 @@ body.dragging::after {
   }
   .mob-q-clear:active { color: var(--danger); border-color: var(--danger); }
 
-  /* Hide desktop queue toolbar on mobile */
+  /* Hide desktop queue toolbar + deck-load buttons on mobile */
   .am-head { display: none; }
   #am-toggle, #am-autofill { display: none; }
+  .r-actions button[data-act="A"],
+  .r-actions button[data-act="B"] { display: none; }
+
+  /* ── "On deck" next-up strip ─────────────────────────── */
+  .mob-next-up {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 6px;
+    border-bottom: 1px solid var(--line-soft);
+    flex-shrink: 0;
+  }
+  .mob-next-up[hidden] { display: none; }
+  .mob-next-up-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .mob-next-up-name {
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
 
   /* ── Queue list ──────────────────────────────────────── */
   #queue-list {
@@ -2492,14 +2522,11 @@ body.dragging::after {
   #queue-list:empty::after { content: none; }
 
   /* ── FAB: open Library tab ───────────────────────────── */
-  /* Hide version footer so the FAB has clean bottom space */
+  /* Hide version footer — FAB is now fixed to the viewport */
   .qs-foot { display: none; }
 
-  #queue-side { position: relative; }
+  /* Base FAB styles (position overridden below to fixed) */
   .mob-fab {
-    position: absolute;
-    bottom: 16px;
-    right: 14px;
     height: 44px;
     padding: 0 18px;
     border-radius: 22px;
@@ -2516,7 +2543,7 @@ body.dragging::after {
     -webkit-tap-highlight-color: transparent;
     white-space: nowrap;
     transition: transform 0.1s;
-    z-index: 5;
+    z-index: 10;
   }
   .mob-fab:active { transform: scale(0.94); }
 
@@ -2559,16 +2586,18 @@ body.dragging::after {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  /* Cover art */
+  /* Cover art — centred in the flex column, grows to absorb spare vertical space */
   .mob-np-cover-wrap {
-    flex-shrink: 0;
-    margin: 8px 16px;
-    border-radius: 12px; overflow: hidden;
+    align-self: center;
+    width: calc(100% - 32px);
+    max-width: 280px;
+    flex-grow: 1;
+    max-height: 300px;
+    margin: 8px 0;
+    border-radius: 14px; overflow: hidden;
     aspect-ratio: 1;
     background: var(--surface);
     position: relative;
-    /* max size so it doesn't crowd the waveform */
-    max-height: 220px;
   }
   .mob-np-cover {
     width: 100%; height: 100%;
@@ -2580,53 +2609,61 @@ body.dragging::after {
     display: flex; align-items: center; justify-content: center;
     font-size: 48px; opacity: 0.15; color: var(--dim);
   }
-  /* hide placeholder when real cover is loaded */
   .mob-np-cover:not([hidden]) + .mob-np-cover-ph { display: none; }
 
-  /* Waveform */
+  /* Waveform — the DJ focal point */
   .mob-waveform {
-    width: 100%; height: 80px; flex-shrink: 0; display: block;
+    width: 100%; height: 96px; flex-shrink: 0; display: block;
   }
 
-  /* Scrubber */
+  /* Scrubber with progress tint via --pct CSS var set from JS */
   .mob-np-scrub {
     display: flex; align-items: center;
-    padding: 6px 16px 4px; gap: 10px; flex-shrink: 0;
+    padding: 8px 16px 4px; gap: 10px; flex-shrink: 0;
   }
   .mob-np-time {
     font-size: 11px; color: var(--faint);
     font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 34px;
   }
   #mob-scrubber {
-    flex: 1; height: 4px;
+    flex: 1; height: 6px;
     -webkit-appearance: none; appearance: none;
-    background: var(--line); border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--pct, 0%),
+      var(--line) var(--pct, 0%), var(--line) 100%);
+    border-radius: 3px;
     cursor: pointer; padding: 0; border: none; box-shadow: none;
+    touch-action: none;
   }
   #mob-scrubber::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 18px; height: 18px;
+    width: 20px; height: 20px;
     border-radius: 50%; background: var(--accent); cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(56,224,196,0.2);
   }
   #mob-scrubber::-moz-range-thumb {
-    width: 18px; height: 18px;
+    width: 20px; height: 20px;
     border-radius: 50%; background: var(--accent);
     border: none; cursor: pointer;
   }
 
-  /* Controls: play (wide) + skip (square icon) */
+  /* Controls: play (wide) + skip (square icon-only) */
   .mob-np-controls {
     display: flex; gap: 10px;
-    padding: 12px 16px 20px; flex-shrink: 0;
+    padding: 12px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
   }
   .mob-np-btn-play {
     flex: 1; height: 56px; border-radius: 16px;
     background: var(--accent); border: none; box-shadow: none;
     color: #04201b; font-size: 22px; cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition: transform 0.1s;
+    transition: transform 0.1s, box-shadow 0.1s;
   }
-  .mob-np-btn-play:active { transform: scale(0.96); }
+  .mob-np-btn-play:active {
+    transform: scale(0.96);
+    box-shadow: 0 0 18px 2px rgba(56,224,196,0.35);
+  }
   .mob-np-btn-skip {
     width: 56px; height: 56px; border-radius: 16px;
     background: var(--surface-2, #1f2433);
@@ -2638,6 +2675,13 @@ body.dragging::after {
     padding: 0;
   }
   .mob-np-btn-skip:active { color: var(--text); border-color: var(--text); transform: none; }
+
+  /* ── FAB: fixed to viewport bottom-right (not absolute in parent) ─ */
+  .mob-fab {
+    position: fixed;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    right: 16px;
+  }
 }
 
 /* ── Landscape phone: now-playing panel full-screen ──────────── */
@@ -2645,10 +2689,8 @@ body.dragging::after {
   main, #workspace { display: none; }
   #mobile-bar { display: none; }
   #mob-np-panel { display: flex; }
-  .mob-np-close { display: none; } /* rotate back to dismiss */
-  /* Hide cover in landscape — not enough vertical room */
+  .mob-np-close { display: none; }
   .mob-np-cover-wrap { display: none; }
-  /* Tighter padding */
   .mob-np-header   { padding: 8px 14px; }
   .mob-np-scrub    { padding: 4px 14px; }
   .mob-np-controls { padding: 8px 14px 12px; }

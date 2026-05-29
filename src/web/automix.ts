@@ -112,6 +112,11 @@ export class Automix {
     this.#render();
   }
 
+  /** The deck currently designated as the active (playing) deck, or null. */
+  get activeDeck(): DeckId | null {
+    return this.#active;
+  }
+
   toggle(): void {
     if (this.on) this.stop();
     else void this.start();

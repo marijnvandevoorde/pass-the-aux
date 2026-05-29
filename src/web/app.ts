@@ -339,7 +339,6 @@ function renderLocalTracks(): void {
       void loadToDeck(t, "B");
     must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () => {
       automix.enqueue(t);
-      setMobTab("queue");
     };
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
@@ -409,7 +408,6 @@ function renderList(): void {
     must<HTMLButtonElement>('[data-act="Q"]', row).onclick = () => {
       automix.enqueue(named);
       history.record(named.path);
-      setMobTab("queue"); // mobile: jump to queue so the DJ sees the addition
     };
 
     // Drag a song onto a deck to load it.
@@ -426,7 +424,6 @@ function renderList(): void {
         automix.enqueue(named);
         history.record(named.path);
         setStatus(`queued "${named.name}"`);
-        setMobTab("queue");
       } else {
         void loadToDeck(named, nonPlayingDeck());
       }
@@ -586,6 +583,22 @@ function startLiveUpdates(): void {
 function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   const list = must<HTMLOListElement>("#queue-list");
   list.innerHTML = "";
+
+  // Mobile: "On deck" strip — shows the pre-loaded idle deck track so the DJ
+  // can see what will play next without opening the desktop deck view.
+  const nextUpEl = document.getElementById("mob-next-up");
+  if (nextUpEl) {
+    const active = mix.activeDeck;
+    const idleId: DeckId | null = active ? (active === "A" ? "B" : "A") : null;
+    const idleTrack = idleId ? decks[idleId]?.track : null;
+    if (idleTrack && mix.on) {
+      nextUpEl.hidden = false;
+      const nameEl = nextUpEl.querySelector(".mob-next-up-name");
+      if (nameEl) nameEl.textContent = idleTrack.name;
+    } else {
+      nextUpEl.hidden = true;
+    }
+  }
 
   // Mobile: update count badge and toggle empty state / FAB visibility.
   const countEl = document.getElementById("mob-q-count");
@@ -1545,26 +1558,39 @@ function wireGlobal(): void {
     void automix.fadeNow();
   });
 
-  // Scrubber: capture the target deck at pointerdown so a deck switch mid-drag
-  // doesn't seek the wrong deck; reset drag flag on visibility change.
+  // Scrubber: `input` fires on every movement AND on tap-to-jump (iOS Safari
+  // may not fire `change` at all on a tap). Capture target deck at first touch
+  // so a mid-drag automix switch doesn't seek the wrong deck.
   const mobScrubEl = document.getElementById("mob-scrubber") as HTMLInputElement | null;
   let scrubTargetDeck: Deck | null = null;
-  mobScrubEl?.addEventListener("pointerdown", () => {
-    mobScrubberDragging = true;
-    scrubTargetDeck = activeMobileDeck().deck;
-  });
   const clearScrubDrag = (): void => {
     mobScrubberDragging = false;
     scrubTargetDeck = null;
   };
+  const doScrubSeek = (): void => {
+    const v = parseFloat(mobScrubEl!.value);
+    const deck = scrubTargetDeck ?? activeMobileDeck().deck;
+    if (deck.duration > 0) {
+      deck.seek(v * deck.duration);
+      mobScrubEl!.style.setProperty("--pct", `${v * 100}%`);
+    }
+  };
+  mobScrubEl?.addEventListener("pointerdown", () => {
+    mobScrubberDragging = true;
+    scrubTargetDeck = activeMobileDeck().deck;
+  });
+  // input fires continuously during drag AND on tap — main seek path
+  mobScrubEl?.addEventListener("input", () => {
+    if (!mobScrubberDragging) {
+      mobScrubberDragging = true;
+      scrubTargetDeck = activeMobileDeck().deck;
+    }
+    doScrubSeek();
+  });
   mobScrubEl?.addEventListener("pointerup",     clearScrubDrag);
   mobScrubEl?.addEventListener("pointercancel", clearScrubDrag);
-  mobScrubEl?.addEventListener("change", () => {
-    const v = parseFloat(mobScrubEl.value);
-    const deck = scrubTargetDeck ?? activeMobileDeck().deck;
-    if (deck.duration > 0) deck.seek(v * deck.duration);
-    clearScrubDrag();
-  });
+  // change: fallback for browsers that skip input events on tap
+  mobScrubEl?.addEventListener("change", () => { doScrubSeek(); clearScrubDrag(); });
 
   // Keep the canvas pixel dimensions in sync with its CSS size.
   if (mobWaveCanvas) {
@@ -2543,7 +2569,11 @@ function render(): void {
       const total   = deck.duration;
       if (!mobScrubberDragging) {
         const scrubEl = document.getElementById("mob-scrubber") as HTMLInputElement | null;
-        if (scrubEl) scrubEl.value = String(total > 0 ? elapsed / total : 0);
+        if (scrubEl) {
+          const pct = total > 0 ? elapsed / total : 0;
+          scrubEl.value = String(pct);
+          scrubEl.style.setProperty("--pct", `${pct * 100}%`);
+        }
       }
       const elapsedEl = document.getElementById("mob-np-elapsed");
       if (elapsedEl) elapsedEl.textContent = fmtTime(elapsed);
