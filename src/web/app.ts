@@ -1211,6 +1211,39 @@ function wireGlobal(): void {
     }
   };
 
+  // ── Mobile party bar ──────────────────────────────────────────
+  const mobPlay = must<HTMLButtonElement>("#mob-play");
+  const mobSkip = must<HTMLButtonElement>("#mob-skip");
+
+  mobPlay.addEventListener("click", () => {
+    const active = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
+    if (active) { active.togglePlay(); return; }
+    // Nothing playing — try to start the non-empty deck.
+    if (decks.A.track) decks.A.play();
+    else if (decks.B.track) decks.B.play();
+  });
+
+  let skipTimer: ReturnType<typeof setTimeout> | null = null;
+  const SKIP_MS = 700;
+
+  const cancelSkip = (): void => {
+    if (skipTimer !== null) { clearTimeout(skipTimer); skipTimer = null; }
+    mobSkip.classList.remove("pressing");
+  };
+  mobSkip.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); // prevent ghost click
+    mobSkip.classList.add("pressing");
+    skipTimer = setTimeout(() => {
+      skipTimer = null;
+      mobSkip.classList.remove("pressing");
+      mobSkip.classList.add("fired");
+      setTimeout(() => mobSkip.classList.remove("fired"), 300);
+      void automix.fadeNow();
+    }, SKIP_MS);
+  });
+  mobSkip.addEventListener("pointerup", cancelSkip);
+  mobSkip.addEventListener("pointercancel", cancelSkip);
+
   must<HTMLButtonElement>("#session-share").onclick = async () => {
     if (!qrPanel.hidden) {
       qrPanel.hidden = true;
@@ -2100,7 +2133,18 @@ function restoreSession(): void {
   } catch {
     s = null;
   }
-  if (!s) return;
+
+  if (!s) {
+    // Fresh session — default automix and auto-fill on so the app is
+    // immediately ready to play from the queue on first load.
+    autoFill = true;
+    const af = must<HTMLButtonElement>("#am-autofill");
+    af.textContent = "AUTO-FILL: ON";
+    af.classList.replace("am-off", "am-on");
+    automix.restoreOn(true);
+    void ensureSession();
+    return;
+  }
 
   // Pre-fill the DJ's chosen session id so it survives a refresh
   // (re-registered with the server on next Share / Automix).
@@ -2353,6 +2397,16 @@ function render(): void {
     `${Math.round(mixer.masterLevel() * 100)}%`;
 
   automix.tick();
+
+  // ── Mobile bar update ──────────────────────────────────────────
+  {
+    const playing = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
+    const trackForBar = playing?.track ?? decks.A.track ?? decks.B.track ?? null;
+    must<HTMLElement>("#mob-track").textContent = trackForBar?.name ?? "— no track —";
+    must<HTMLElement>("#mob-bpm").textContent = trackForBar?.bpm ? `${Math.round(trackForBar.bpm)} BPM` : "";
+    must<HTMLButtonElement>("#mob-play").textContent = playing ? "❚❚" : "▶";
+    must<HTMLElement>("#mob-dot").classList.toggle("paused", !playing);
+  }
 
   const tnow = performance.now();
   if (tnow - lastSessionSave > 3000) {

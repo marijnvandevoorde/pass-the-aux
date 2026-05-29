@@ -219,6 +219,24 @@
       </section>
     </main>
 
+    <!-- Mobile-only now-playing bar — hidden on desktop via CSS -->
+    <div id="mobile-bar">
+      <div id="mob-now-playing">
+        <span id="mob-dot"></span>
+        <div id="mob-track-info">
+          <span id="mob-track">— no track —</span>
+          <span id="mob-bpm"></span>
+        </div>
+      </div>
+      <div id="mob-controls">
+        <button id="mob-play" aria-label="Play / pause">▶</button>
+        <button id="mob-skip" aria-label="Hold to skip to next track">
+          <span class="mob-skip-label">⏭</span>
+          <span class="mob-skip-fill"></span>
+        </button>
+      </div>
+    </div>
+
     <div id="workspace">
       <section id="lib-crates">
         <div id="library" role="tabpanel" ondragover="event.preventDefault()">

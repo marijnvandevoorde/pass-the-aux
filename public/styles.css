@@ -2164,6 +2164,142 @@ body.dragging::after {
   }
 }
 
+/* ── Mobile party bar (hidden on desktop) ─────────────────────── */
+#mobile-bar {
+  display: none;
+}
+
+/* ── Mobile party mode (≤ 640 px) ─────────────────────────────── */
+@media (max-width: 640px) {
+  /* Hide the decks entirely — library + queue are the DJ's interface. */
+  main { display: none; }
+
+  /* Show the compact now-playing bar. */
+  #mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--panel-bg, #141420);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  #mob-now-playing {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  #mob-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    animation: mob-pulse 1.6s ease-in-out infinite;
+  }
+  #mob-dot.paused { animation: none; background: var(--faint); }
+  @keyframes mob-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.35; transform: scale(0.7); }
+  }
+
+  #mob-track-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  #mob-track {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #mob-bpm {
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  #mob-controls {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  #mob-play {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface-2, #1f2433);
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #mob-play:active { opacity: 0.7; }
+
+  /* Long-press skip button with fill animation */
+  #mob-skip {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    background: var(--surface-2, #1f2433);
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #mob-skip:active { opacity: 0.8; }
+  .mob-skip-label { position: relative; z-index: 1; pointer-events: none; }
+  .mob-skip-fill {
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: none;
+  }
+  #mob-skip.pressing .mob-skip-fill {
+    transform: scaleX(1);
+    transition: transform 700ms linear;
+  }
+  #mob-skip.fired {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Workspace fills all remaining height. */
+  #workspace {
+    padding: 0 0 0;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  /* Queue: hide automix + autofill toggles (always on); show reset. */
+  #am-toggle, #am-autofill { display: none; }
+  #am-clear-played {
+    order: -1;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface-2, #1f2433);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 5px 14px;
+  }
+
+  /* Queue gets a reasonable max height so library stays visible. */
+  #queue-side { max-height: 45vh; }
+}
+
 /* Bigger hit targets on touch devices. */
 @media (pointer: coarse) {
   .knob {
