@@ -292,35 +292,44 @@
       /* ── Now Playing bottom sheet ──────────────────── */
       #np-sheet {
         position: fixed; inset: 0; z-index: 20;
-        display: flex; align-items: flex-end;
+        display: flex; flex-direction: column;
+        /* 48px tap-to-dismiss strip at top; card fills the rest */
+        padding-top: 48px;
         background: rgba(0,0,0,0);
         pointer-events: none;
         transition: background 0.25s ease;
       }
-      #np-sheet.open { background: rgba(0,0,0,0.6); pointer-events: auto; }
+      #np-sheet.open { background: rgba(0,0,0,0.5); pointer-events: auto; }
+      /* The 48px strip above the card is still part of #np-sheet — clicking
+         it fires the backdrop handler and closes the sheet. */
       #np-card {
-        width: 100%; background: var(--card);
+        flex: 1; width: 100%; background: var(--card);
         border-radius: 20px 20px 0 0;
         border: 1px solid var(--line); border-bottom: none;
-        padding: 16px 24px calc(24px + env(safe-area-inset-bottom));
+        padding: 16px 24px calc(32px + env(safe-area-inset-bottom));
+        display: flex; flex-direction: column; align-items: center;
+        overflow-y: auto;
         transform: translateY(100%);
         transition: transform 0.3s cubic-bezier(.32,0,.2,1);
       }
       #np-sheet.open #np-card { transform: translateY(0); }
       #np-handle {
-        width: 36px; height: 4px; border-radius: 2px;
-        background: var(--line); margin: 0 auto 20px;
+        width: 40px; height: 5px; border-radius: 3px;
+        background: var(--line); margin: 0 auto 24px; flex: none;
+        cursor: grab;
       }
       #np-cover-wrap {
-        width: 180px; height: 180px; border-radius: 12px;
-        background: var(--line); margin: 0 auto 20px;
+        width: min(260px, 60vw); height: min(260px, 60vw);
+        border-radius: 16px;
+        background: var(--line); margin: 0 auto 28px; flex: none;
         overflow: hidden; display: flex; align-items: center; justify-content: center;
-        font-size: 56px;
+        font-size: 72px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.5);
       }
       #np-cover { width: 100%; height: 100%; object-fit: cover; display: none; }
       #np-cover.loaded { display: block; }
-      #np-sheet-name { font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 6px; }
-      #np-sheet-meta { font-size: 14px; color: var(--dim); text-align: center; margin: 0; }
+      #np-sheet-name { font-size: 22px; font-weight: 700; text-align: center; margin: 0 0 8px; }
+      #np-sheet-meta { font-size: 15px; color: var(--dim); text-align: center; margin: 0; }
     </style>
   </head>
   <body>

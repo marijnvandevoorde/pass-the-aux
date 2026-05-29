@@ -43,8 +43,15 @@ function closeNpSheet(): void { npSheet.classList.remove("open"); }
 
 npPill.addEventListener("click", openNpSheet);
 npPill.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") openNpSheet(); });
+// Tap the 48px backdrop strip above the card to close.
 npSheet.addEventListener("click", (e) => { if (e.target === npSheet) closeNpSheet(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeNpSheet(); });
+
+// Swipe-down on the handle to close.
+const npHandle = $<HTMLDivElement>("#np-handle");
+let swipeStartY = 0;
+npHandle.addEventListener("touchstart", (e) => { swipeStartY = e.touches[0]!.clientY; }, { passive: true });
+npHandle.addEventListener("touchend", (e) => { if (e.changedTouches[0]!.clientY - swipeStartY > 60) closeNpSheet(); }, { passive: true });
 
 function updateNowPlaying(np: NowPlaying | null, at: number | null): void {
   if (!np) {
