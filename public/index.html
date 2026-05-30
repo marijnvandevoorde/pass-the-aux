@@ -254,19 +254,22 @@
           <span id="mob-np-sub" class="mob-np-sub"></span>
         </div>
       </div>
-      <!-- Cover art -->
-      <div class="mob-np-cover-wrap">
-        <img id="mob-np-cover" class="mob-np-cover" alt="" hidden>
-        <div id="mob-np-cover-ph" class="mob-np-cover-ph">♫</div>
+      <!-- Body: cover + waveform/scrub side by side in landscape, stacked in portrait -->
+      <div class="mob-np-body">
+        <div class="mob-np-cover-wrap">
+          <img id="mob-np-cover" class="mob-np-cover" alt="" hidden>
+          <div id="mob-np-cover-ph" class="mob-np-cover-ph">♫</div>
+        </div>
+        <div class="mob-np-wave-side">
+          <canvas id="mob-waveform" class="mob-waveform"></canvas>
+          <div class="mob-np-scrub">
+            <span id="mob-np-elapsed" class="mob-np-time">0:00</span>
+            <input id="mob-scrubber" type="range" min="0" max="1" step="0.001" value="0">
+            <span id="mob-np-remain" class="mob-np-time"></span>
+          </div>
+        </div>
       </div>
-      <!-- Waveform + scrubber -->
-      <canvas id="mob-waveform" class="mob-waveform"></canvas>
-      <div class="mob-np-scrub">
-        <span id="mob-np-elapsed" class="mob-np-time">0:00</span>
-        <input id="mob-scrubber" type="range" min="0" max="1" step="0.001" value="0">
-        <span id="mob-np-remain" class="mob-np-time"></span>
-      </div>
-      <!-- Controls -->
+      <!-- Controls always full-width at bottom -->
       <div class="mob-np-controls">
         <button id="mob-np-play" class="mob-np-btn-play">▶</button>
         <button id="mob-np-skip" class="mob-np-btn-skip" aria-label="Skip to next">

@@ -584,17 +584,18 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   const list = must<HTMLOListElement>("#queue-list");
   list.innerHTML = "";
 
-  // Mobile: "On deck" strip — shows the pre-loaded idle deck track so the DJ
-  // can see what will play next without opening the desktop deck view.
+  // Mobile: "On deck" strip — prefer the physically pre-loaded idle deck track;
+  // fall back to queue[0] so the strip shows even before prepareNext() runs.
   const nextUpEl = document.getElementById("mob-next-up");
   if (nextUpEl) {
     const active = mix.activeDeck;
     const idleId: DeckId | null = active ? (active === "A" ? "B" : "A") : null;
     const idleTrack = idleId ? decks[idleId]?.track : null;
-    if (idleTrack && mix.on) {
+    const nextTrack = idleTrack ?? (queue.length > 0 ? queue[0] : null);
+    if (nextTrack && mix.on) {
       nextUpEl.hidden = false;
       const nameEl = nextUpEl.querySelector(".mob-next-up-name");
-      if (nameEl) nameEl.textContent = idleTrack.name;
+      if (nameEl) nameEl.textContent = nextTrack.name;
     } else {
       nextUpEl.hidden = true;
     }
@@ -2588,8 +2589,10 @@ function render(): void {
       if (titleEl) titleEl.textContent = deck.track?.name ?? "— no track —";
       const subEl = document.getElementById("mob-np-sub");
       if (subEl) {
+        // Show key + BPM — artist is already in the title display name
         const parts: string[] = [];
-        if (lib?.artist) parts.push(lib.artist);
+        if (lib?.camelot) parts.push(lib.camelot);
+        else if (lib?.key) parts.push(lib.key + (lib.mode === "minor" ? "m" : ""));
         if (lib?.bpm) parts.push(`${Math.round(lib.bpm)} BPM`);
         subEl.textContent = parts.join(" · ");
       }
