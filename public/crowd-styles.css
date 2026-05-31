@@ -3,7 +3,7 @@
    Full-page web app, no phone mockup.
    ============================================================ */
 
-/* ── Reset phone-frame styles from mobile-styles.css ── */
+/* ── Base page (crowd uses .crowd-screen, not the DJ's .screen) ── */
 body {
   display: block;
   background: var(--bg);

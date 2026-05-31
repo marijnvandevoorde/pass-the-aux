@@ -31,8 +31,6 @@
 
   --radius:   16px;
   --radius-s: 11px;
-  --phone-w:  390px;
-  --phone-h:  844px;
 
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
@@ -41,68 +39,33 @@
 }
 
 body {
-  background: #050608;
-  background-image: radial-gradient(1200px 700px at 50% -10%, #0e1420 0%, #050608 60%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: var(--bg);
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   color: var(--text);
 }
 
-/* ── iPhone bezel ── */
-.phone-frame {
-  width: var(--phone-w);
-  height: var(--phone-h);
-  background: #16161b;
-  border-radius: 54px;
-  box-shadow:
-    0 0 0 1px #34343f,
-    0 0 0 10px #0e0e13,
-    0 0 0 12px #2a2a34,
-    0 50px 120px rgba(0,0,0,0.8),
-    0 0 90px -20px var(--accent-glow);
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-.dynamic-island {
-  position: absolute;
-  top: 13px; left: 50%;
-  transform: translateX(-50%);
-  width: 122px; height: 34px;
-  background: #000;
-  border-radius: 20px;
-  z-index: 100;
-}
+/* ── App shell — a full-page mobile app (no phone bezel). On wider
+   screens it stays a centered phone-width column rather than stretching. ── */
 .screen {
-  position: absolute; inset: 0;
-  border-radius: 54px;
-  background: radial-gradient(120% 60% at 50% -8%, #111826 0%, var(--bg) 52%);
-  overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 460px;
+  margin: 0 auto;
+  overflow: hidden;
+  background: radial-gradient(120% 60% at 50% -8%, #111826 0%, var(--bg) 52%);
+  border-inline: 1px solid var(--line-soft);
 }
-
-/* ── Status bar ── */
-.status-bar {
-  height: 54px;
-  display: flex; align-items: flex-end;
-  padding: 0 30px 9px; justify-content: space-between;
-  flex-shrink: 0; z-index: 10;
-}
-.status-time { font-size: 15px; font-weight: 650; letter-spacing: -0.3px; }
-.status-icons { display: flex; align-items: center; gap: 6px; }
-.status-icons svg { display: block; }
 
 /* ── App header ── */
 .app-header {
   display: flex; align-items: center;
-  padding: 6px 16px 12px; gap: 11px;
+  padding: max(12px, env(safe-area-inset-top)) 16px 12px; gap: 11px;
   flex-shrink: 0; z-index: 10;
 }
 .app-logo {
@@ -653,9 +616,6 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ── Home indicator ── */
-.home-indicator { height: 30px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.home-bar { width: 132px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 3px; }
 
 /* Landscape layout lives in the single media query below (search
    "Phone landscape"). It is driven purely by CSS — no JS class toggle. */
@@ -735,13 +695,10 @@ body {
 }
 .np-transport-row .btn-play { flex: 1; }
 
-/* Landscape np-full: disc left, info right */
 /* ── Phone landscape: full-screen now-playing chip, no workspace ── */
 @media (orientation: landscape) and (max-height: 520px) {
   body { overflow: hidden; }
-  .dynamic-island, .status-bar, .home-indicator { display: none; }
-  .phone-frame { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; box-shadow: none; }
-  .screen { border-radius: 0; display: flex; flex-direction: column; }
+  .screen { max-width: none; border-inline: none; }
   .workspace { display: none; }
 
   /* Now-hero fills the space: disc left, info/wave/transport right */
@@ -767,11 +724,7 @@ body {
   .np-wave, .np-times { max-width: 100%; }
 }
 
-/* ── Mobile: full-screen on phone ── */
-@media (max-width: 440px) {
-  body { background: var(--bg); align-items: flex-start; }
-  .phone-frame { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; box-shadow: none; }
-  .screen { border-radius: 0; }
-  .dynamic-island { display: none; }
-  .status-bar { height: 44px; }
+/* ── Real phone (portrait): full-bleed, no side rails ── */
+@media (max-width: 460px) {
+  .screen { max-width: none; border-inline: none; }
 }
