@@ -1,0 +1,226 @@
+/* ============================================================
+   Pass the Aux — Crowd page
+   Full-page web app, no phone mockup.
+   ============================================================ */
+
+/* ── Reset phone-frame styles from mobile-styles.css ── */
+body {
+  display: block;
+  background: var(--bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ── App shell ── the crowd page is a mobile experience; on wider
+   screens we just center the same column rather than reflowing to a
+   desktop layout. 639px is the comfortable upper bound. ── */
+.crowd-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 600px;
+  margin: 0 auto;
+  position: relative;
+  border-inline: 1px solid var(--line-soft);
+}
+
+.crowd-header {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px 10px;
+  gap: 11px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: rgba(7,9,14,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 20;
+}
+
+.crowd-header .app-logo {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 9px; overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 4px 14px rgba(0,0,0,0.5);
+}
+.crowd-header .app-logo img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+.crowd-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Now-hero: no margin/radius on crowd (full-width strip) ── */
+.now-hero.crowd {
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.now-hero.crowd::before { content: none; }
+.now-hero.crowd .expand-hint {
+  position: absolute; top: 12px; right: 13px;
+  display: flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.18em;
+  color: var(--accent); opacity: 0.85;
+}
+.now-hero.crowd .wave { cursor: default; pointer-events: none; }
+
+/* Workspace fills remaining space */
+.crowd-body .workspace {
+  flex: 1;
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Phone landscape: only now-playing (mirrors the DJ chip, no transport) ── */
+@media (orientation: landscape) and (max-height: 520px) {
+  .crowd-body { flex-direction: column; }
+  .crowd-body .workspace { display: none; }
+  .now-hero.crowd {
+    flex: 1;
+    margin: 8px 12px;
+    border: none; border-radius: var(--radius);
+    background:
+      linear-gradient(180deg, rgba(56,224,196,0.06), rgba(56,224,196,0) 40%),
+      var(--surface);
+    grid-template-columns: 38% 1fr;
+    grid-template-areas: "disc info" "disc wave" "disc req";
+    align-content: center; row-gap: 10px; padding: 16px;
+  }
+  /* size by height (no transport row to stretch the grid like the DJ has) */
+  .now-hero.crowd .disc-wrap {
+    grid-row: 1 / 4; align-self: center; justify-self: center;
+    height: min(72vh, 220px); width: auto; aspect-ratio: 1;
+  }
+  .now-hero.crowd .expand-hint { display: none; }
+}
+
+/* ── Guest chip ── */
+.guest-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 20px; padding: 5px 11px 5px 6px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: border-color .2s;
+  margin-left: auto;
+}
+.guest-chip:active { border-color: var(--accent); }
+.guest-av {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 9px; font-weight: 700; color: #fff;
+}
+.guest-name { font-size: 12.5px; font-weight: 650; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Name gate ── */
+.name-gate {
+  position: fixed; inset: 0; z-index: 300;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(56,224,196,0.12), transparent 55%),
+    radial-gradient(100% 70% at 50% 100%, rgba(132,102,176,0.18), transparent 60%),
+    var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 40px 34px; text-align: center; gap: 4px;
+  transition: opacity .4s ease, transform .4s ease;
+}
+.name-gate.dismissed { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.gate-logo { width: 72px; height: 72px; border-radius: 20px; overflow: hidden; margin-bottom: 20px; box-shadow: 0 0 0 1px var(--line), 0 16px 40px -10px rgba(0,0,0,0.7), 0 0 60px -16px var(--accent-glow); }
+.gate-logo img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.gate-kicker { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.28em; color: var(--accent); text-transform: uppercase; }
+.gate-title { font-size: 28px; font-weight: 750; letter-spacing: -0.5px; margin-top: 6px; color: var(--text); }
+.gate-session { font-size: 12.5px; color: var(--dim); margin-top: 6px; display: inline-flex; align-items: center; gap: 7px; }
+.gate-session .live-dot { width: 6px; height: 6px; }
+.gate-form { width: 100%; max-width: 300px; margin-top: 34px; display: flex; flex-direction: column; gap: 11px; }
+.gate-label { font-size: 12.5px; color: var(--dim); text-align: left; margin-left: 3px; margin-bottom: -2px; }
+.gate-input {
+  width: 100%; height: 54px; border-radius: 15px;
+  background: var(--surface); border: 1.5px solid var(--line);
+  color: var(--text); font-size: 18px; font-weight: 600; font-family: inherit;
+  padding: 0 18px; outline: none; text-align: center;
+  transition: border-color .2s, box-shadow .2s;
+}
+.gate-input::placeholder { color: var(--faint); font-weight: 500; }
+.gate-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(56,224,196,0.12); }
+.gate-go {
+  width: 100%; height: 52px; border-radius: 15px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-ink); font-size: 15px; font-weight: 750;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  box-shadow: 0 10px 30px -8px var(--accent-glow);
+  transition: transform .1s, opacity .2s; -webkit-tap-highlight-color: transparent;
+}
+.gate-go:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+.gate-go:not(:disabled):active { transform: scale(0.97); }
+.gate-go svg { display: block; }
+.gate-fine { font-size: 11.5px; color: var(--faint); margin-top: 16px; line-height: 1.5; max-width: 260px; }
+
+/* ── Fullscreen now playing ── shares the .np-full + .np-req styles from
+   mobile-styles.css so the crowd view is identical to the DJ's (minus the
+   transport row, which the crowd markup omits). ── */
+/* crowd fullscreen waveform is display-only */
+.np-full .np-wave { pointer-events: none; }
+
+/* ── requested-by row under the now-playing chip (crowd) ── */
+.requested-by { margin-top: 10px; display: flex; min-width: 0; }
+.requested-by:empty { display: none; }
+
+/* ── Request buttons ── */
+.req-btn {
+  height: 32px; padding: 0 14px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid rgba(56,224,196,0.35); background: rgba(56,224,196,0.09);
+  color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer;
+  font-family: var(--mono); letter-spacing: 0.03em;
+  -webkit-tap-highlight-color: transparent; transition: transform .1s, background .15s;
+}
+.req-btn:active { transform: scale(0.92); }
+.req-btn.pending { background: rgba(255,178,77,0.12); border-color: rgba(255,178,77,0.35); color: var(--energy); cursor: default; }
+.req-btn.played { background: none; border-color: var(--line-soft); color: var(--faint); cursor: default; }
+
+/* ── Up Next / queue ── */
+.q-index { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--faint); width: 18px; text-align: center; flex-shrink: 0; }
+
+/* ── Vote pill ── */
+.vote-pill {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+  height: 30px; padding: 0 11px 0 9px; border-radius: 15px;
+  border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--dim); font-family: var(--mono); font-size: 12px; font-weight: 700;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: transform .1s, color .18s, background .18s, border-color .18s;
+}
+.vote-pill:active { transform: scale(0.9); }
+.vote-pill .vp-arrow { display: block; transition: transform .18s; }
+.vote-pill.voted { color: var(--accent); background: rgba(56,224,196,0.13); border-color: rgba(56,224,196,0.4); }
+.vote-pill.voted .vp-arrow { transform: translateY(-1px); }
+
+:root.hide-upnext .tab-bar { display: none; }
+:root.hide-upnext #fabCrate { display: none; }
+
+/* ── Already played ── */
+.played-head { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 16px 4px 9px; -webkit-tap-highlight-color: transparent; }
+.played-head .ph-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--faint); }
+.played-head .ph-line { flex: 1; height: 1px; background: var(--line-soft); }
+.played-head .ph-chev { color: var(--faint); transition: transform .25s; display: flex; }
+.played-head.open .ph-chev { transform: rotate(180deg); }
+.played-body { display: none; flex-direction: column; gap: 6px; }
+.played-body.open { display: flex; }
+.played-item { opacity: 0.6; }
+.played-item .q-key-rail { opacity: 0.4; }
+
+/* ── Crate hint ── */
+.crate-hint {
+  margin: 0 16px 6px; padding: 10px 13px; border-radius: 11px;
+  background: rgba(56,224,196,0.06); border: 1px solid rgba(56,224,196,0.18);
+  font-size: 11.5px; color: var(--dim); display: flex; align-items: center; gap: 9px;
+}
+.crate-hint b { color: var(--accent); font-weight: 650; }
+.crate-hint svg { flex-shrink: 0; color: var(--accent); }
