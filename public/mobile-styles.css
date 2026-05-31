@@ -631,7 +631,9 @@ body {
   padding: 56px 32px 32px; gap: 0;
   opacity: 0; pointer-events: none;
   transform: translateY(14px); transition: opacity .35s ease, transform .35s ease;
-  overflow-y: auto;
+  /* clip horizontally so the spinning disc's (invisible) square corners
+     don't sweep past the edge and spawn a flickering scrollbar */
+  overflow-x: hidden; overflow-y: auto;
 }
 .np-full.open { opacity: 1; pointer-events: all; transform: translateY(0); }
 /* In portrait/desktop the body is transparent to layout (its children flow
@@ -722,6 +724,9 @@ body {
   .np-full {
     flex-direction: row; align-items: center; justify-content: flex-start;
     padding: 20px 28px; gap: 28px;
+    /* content is height-sized to fit, so clip both axes — the spinning
+       disc no longer produces a vertical scrollbar either */
+    overflow: hidden;
   }
   .np-flag { display: none; }
   .np-disc {
