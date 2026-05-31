@@ -112,9 +112,12 @@ export const api = {
     });
   },
 
-  async remoteStatus(): Promise<RemoteStatusResponse> {
+  async remoteStatus(session?: string): Promise<RemoteStatusResponse> {
     try {
-      const res = await fetch("/api/remote-status");
+      const res = await fetch(
+        "/api/remote-status" +
+          (session ? `?s=${encodeURIComponent(session)}` : ""),
+      );
       if (!res.ok) return { enabled: false };
       return (await res.json()) as RemoteStatusResponse;
     } catch {
