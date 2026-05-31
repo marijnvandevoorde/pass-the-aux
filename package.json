@@ -18,7 +18,7 @@
     "visual-server": "ENV_FILE=/dev/null MUSIC_DIR=./music SQLITE_PATH=test/visual/test.sqlite node server.ts",
     "visual-test": "node test/visual/mobile.mjs",
     "visual-update": "node test/visual/mobile.mjs --update",
-    "test:e2e": "node test/e2e/run.mjs"
+    "test:e2e": "npm run build && node test/e2e/run.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
