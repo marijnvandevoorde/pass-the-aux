@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pass the Aux — Mobile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="pta.css">
+</head>
+<body>
+
+<div class="desktop-label">Pass the Aux — Mobile · tap <button id="rotateBtn" style="font:inherit;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline">rotate ⟳</button> for landscape</div>
+
+<div class="phone-frame" data-screen-label="Pass the Aux — Mobile">
+  <div class="dynamic-island"></div>
+  <div class="screen">
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="status-time">9:18</div>
+      <div class="status-icons">
+        <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor">
+          <rect x="0" y="8" width="3" height="4" rx="0.5"/>
+          <rect x="4.5" y="5.5" width="3" height="6.5" rx="0.5"/>
+          <rect x="9" y="3" width="3" height="9" rx="0.5"/>
+          <rect x="13.5" y="0" width="3" height="12" rx="0.5" opacity="0.35"/>
+        </svg>
+        <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor">
+          <path d="M8 9.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/>
+          <path d="M8 6C6.1 6 4.4 6.8 3.2 8.1L2 6.9C3.5 5.3 5.6 4.3 8 4.3s4.5 1 6 2.6l-1.2 1.2C11.6 6.8 9.9 6 8 6z" opacity="0.7"/>
+          <path d="M8 2.5C5 2.5 2.4 3.9.5 6.1L-.8 4.9C1.4 2.3 4.5.7 8 .7s6.6 1.6 8.8 4.2l-1.3 1.2C13.6 3.9 11 2.5 8 2.5z" opacity="0.4"/>
+        </svg>
+        <svg width="25" height="12" viewBox="0 0 25 12" fill="currentColor">
+          <rect x="0" y="1" width="21" height="10" rx="3" stroke="currentColor" stroke-width="1.2" fill="none"/>
+          <rect x="22" y="3.8" width="2" height="4.4" rx="1"/>
+          <rect x="1.5" y="2.5" width="16" height="7" rx="2"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- App header -->
+    <div class="app-header">
+      <div class="app-logo"><img src="passtheaux.png" alt="Pass the Aux"></div>
+      <div class="brand-block">
+        <div class="app-title">Pass the Aux</div>
+        <div class="session-meta">
+          <span class="live-dot"></span>
+          <span class="listeners"><b>7</b> in the room</span>
+        </div>
+      </div>
+      <button class="share-btn" id="shareBtn">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="3.5" r="2"/><circle cx="4" cy="8" r="2"/><circle cx="12" cy="12.5" r="2"/>
+          <path d="M5.8 7 10.2 4.5M5.8 9 10.2 11.5"/>
+        </svg>
+        Invite
+      </button>
+    </div>
+
+    <!-- NOW PLAYING hero -->
+    <div class="now-hero playing" id="nowHero">
+      <div class="disc-wrap">
+        <div class="disc"></div>
+        <div class="disc-shine"></div>
+        <div class="disc-hole" id="discHole"></div>
+      </div>
+      <div class="now-info">
+        <div class="now-title-wrap"><span class="now-title" id="nowTitle">Antidote</span></div>
+        <div class="now-artist" id="nowArtist">FILOFIHI</div>
+        <div class="chip-row">
+          <span class="key-chip" id="nowKeyChip"><span class="key-dot"></span>11B</span>
+          <span class="bpm-chip" id="nowBpmChip"><b>133</b> BPM</span>
+        </div>
+      </div>
+
+      <div class="wave-wrap">
+        <span class="wave-time" id="timeElapsed">0:00</span>
+        <div class="wave" id="wave"></div>
+        <span class="wave-time" id="timeRemain">-3:31</span>
+      </div>
+
+      <div class="transport">
+        <button class="heart-btn" id="heartBtn" aria-label="Love this track">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M9 15.5S2 11.5 2 6.6A3.6 3.6 0 0 1 9 5a3.6 3.6 0 0 1 7 1.6c0 4.9-7 8.9-7 8.9z" fill="currentColor" fill-opacity="0" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="btn-play" id="playBtn" aria-label="Play / Pause">
+          <svg id="playIcon" width="17" height="17" viewBox="0 0 17 17"></svg>
+          <span class="play-label" id="playLabel">PLAYING</span>
+        </button>
+        <div class="skip-wrap" id="skipWrap" title="Skip to next track">
+          <svg class="skip-ring-svg" viewBox="0 0 50 50">
+            <circle class="skip-ring-track" cx="25" cy="25" r="22"/>
+            <circle class="skip-ring-fill" id="skipRing" cx="25" cy="25" r="22"/>
+          </svg>
+          <div class="skip-bg"></div>
+          <div class="skip-flash" id="skipFlash"></div>
+          <div class="skip-inner">
+            <svg class="skip-icon" width="16" height="14" viewBox="0 0 16 14" fill="currentColor" aria-hidden="true">
+              <path d="M1 1.4 9.2 6.3a.8.8 0 0 1 0 1.4L1 12.6A.8.8 0 0 1 0 12V2a.8.8 0 0 1 1-.6z"/>
+              <rect x="11.8" y="1" width="2.4" height="12" rx="1.2"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Workspace -->
+    <div class="workspace">
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tabQueue">Up Next <span class="tab-count" id="queueCount">5</span></button>
+        <button class="tab-btn" id="tabLibrary">Library</button>
+      </div>
+
+      <div class="tab-panels">
+        <!-- Queue -->
+        <div class="tab-panel active" id="panelQueue">
+          <div class="queue-toolbar">
+            <span class="ondeck-flag">▸ MIXING INTO DECK</span>
+            <button class="clear-btn" id="resetBtn" aria-label="Reset played history" title="Reset played history">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 8a5.5 5.5 0 1 1 1.7 4"/>
+                <path d="M2 11.2V7.8h3.4"/>
+              </svg>
+            </button>
+            <button class="clear-btn" id="clearBtn" aria-label="Clear queue" title="Clear queue">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <path d="M2.5 4h9M5.5 4V2.5h3V4M4 4l.6 8h4.8L10 4"/>
+              </svg>
+            </button>
+          </div>
+          <div class="queue-list" id="queueList"></div>
+          <div class="queue-empty" id="queueEmpty">
+            <div class="empty-icon">🎚️</div>
+            <div class="empty-text">Queue is empty<br>Add tracks from the Library</div>
+          </div>
+          <button class="fab" id="fabLibrary">
+            <svg width="15" height="15" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v11M1.5 7h11" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+            Add track
+          </button>
+        </div>
+
+        <!-- Library -->
+        <div class="tab-panel" id="panelLibrary">
+          <div class="lib-search-wrap">
+            <div class="lib-search-rel">
+              <input class="lib-search" id="librarySearch" type="search" placeholder="Search the crate…" autocomplete="off" spellcheck="false">
+              <span class="search-icon">
+                <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="4.5"/><path d="M9.5 9.5l2.5 2.5"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="lib-list" id="libraryList"></div>
+          <div class="lib-empty" id="libraryEmpty">No tracks found</div>
+        </div>
+      </div>
+
+      <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <!-- QR overlay -->
+    <div class="qr-overlay" id="qrOverlay">
+      <button class="qr-close" id="qrClose">×</button>
+      <div class="qr-card">
+        <div class="qr-title">Pass the Aux</div>
+        <div class="qr-box" id="qrBox"></div>
+        <div class="qr-sub">Scan to join the session<br><b>aux.party/fri-night</b></div>
+      </div>
+    </div>
+
+    <div class="home-indicator"><div class="home-bar"></div></div>
+  </div>
+</div>
+
+<script>
+/* simple decorative QR (not a real code) */
+(function(){
+  const box = document.getElementById('qrBox');
+  const N = 21; const NS='http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS,'svg'); svg.setAttribute('viewBox',`0 0 ${N} ${N}`);
+  let seed=7; const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};
+  function finder(x,y){[[0,0,7],[1,1,5],[2,2,3]].forEach(([a,b,s],i)=>{const r=document.createElementNS(NS,'rect');r.setAttribute('x',x+a);r.setAttribute('y',y+b);r.setAttribute('width',s);r.setAttribute('height',s);r.setAttribute('fill',i===1?'#fff':'#0a0a0a');r.setAttribute('rx',i===2?1:0.5);svg.appendChild(r);});}
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){const inF=(x<7&&y<7)||(x>N-8&&y<7)||(x<7&&y>N-8);if(inF)continue;if(rnd()>0.55){const r=document.createElementNS(NS,'rect');r.setAttribute('x',x);r.setAttribute('y',y);r.setAttribute('width',1);r.setAttribute('height',1);r.setAttribute('fill','#0a0a0a');svg.appendChild(r);}}
+  finder(0,0);finder(N-7,0);finder(0,N-7);
+  box.appendChild(svg);
+})();
+</script>
+<script src="pta.js"></script>
+
+<!-- Tweaks -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<div id="tweaks-root"></div>
+<script type="text/babel" src="tweaks-app.jsx"></script>
+</body>
+</html>
