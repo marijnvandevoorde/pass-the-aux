@@ -104,6 +104,80 @@ let skipping = false;
 let fading = false;
 let currentBeatGrid: BeatGridResponse | null = null;
 
+// ── Web Audio crossfade graph ──
+// iOS Safari ignores HTMLMediaElement.volume (it's read-only there), so a
+// volume-based crossfade is a silent no-op on iPhone — the tracks just
+// overlap then cut. Route both decks through GainNodes (which DO work on
+// iOS) and ride the gain instead, matching the desktop's Web Audio mix.
+let audioCtx: AudioContext | null = null;
+const deckGain = new Map<HTMLAudioElement, GainNode>();
+
+function ensureAudioGraph(): void {
+  if (audioCtx) return;
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return; // no Web Audio → fall back to element.volume
+  try {
+    const ctx = new Ctor();
+    for (const deck of [deckA, deckB]) {
+      const src = ctx.createMediaElementSource(deck);
+      const gain = ctx.createGain();
+      gain.gain.value = 1;
+      src.connect(gain).connect(ctx.destination);
+      deckGain.set(deck, gain);
+    }
+    audioCtx = ctx;
+  } catch {
+    // Web Audio unavailable/blocked → leave audioCtx null; playback uses
+    // the bare <audio> elements and fades fall back to .volume.
+    audioCtx = null;
+    deckGain.clear();
+  }
+}
+
+/** Create + resume the context from within a user gesture (first play). */
+function resumeAudio(): void {
+  ensureAudioGraph();
+  void audioCtx?.resume();
+}
+
+/** Set a deck's level instantly (0..1) via its gain (or volume fallback). */
+function setDeckLevel(deck: HTMLAudioElement, level: number): void {
+  const g = deckGain.get(deck);
+  if (audioCtx && g) {
+    g.gain.cancelScheduledValues(audioCtx.currentTime);
+    g.gain.setValueAtTime(level, audioCtx.currentTime);
+  } else {
+    deck.volume = level;
+  }
+}
+
+/** Linear gain ramp over `seconds`; resolves when done. Falls back to a
+ *  requestAnimationFrame volume ramp where Web Audio is unavailable. */
+function fadeDeck(deck: HTMLAudioElement, to: number, seconds: number): Promise<void> {
+  const g = deckGain.get(deck);
+  if (audioCtx && g) {
+    const t = audioCtx.currentTime;
+    const from = g.gain.value;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(from, t);
+    g.gain.linearRampToValueAtTime(to, t + seconds);
+    return new Promise((r) => setTimeout(r, seconds * 1000));
+  }
+  const fromVol = deck.volume;
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const step = (): void => {
+      const p = Math.min(1, (performance.now() - start) / (seconds * 1000));
+      deck.volume = fromVol + (to - fromVol) * p;
+      if (p < 1) requestAnimationFrame(step);
+      else resolve();
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 // ── Waveforms (both seek the active deck) ──
 const seekActive = (ratio: number): void => {
   if (activeDeck.duration && isFinite(activeDeck.duration))
@@ -158,16 +232,14 @@ function setPlayState(playing: boolean): void {
 }
 
 // ── Transport ──
-playBtn.addEventListener("click", () => {
+function togglePlay(): void {
   if (!nowPlaying) return;
+  resumeAudio();
   if (activeDeck.paused) activeDeck.play().catch(() => {});
   else activeDeck.pause();
-});
-npPlayBtnEl.addEventListener("click", () => {
-  if (!nowPlaying) return;
-  if (activeDeck.paused) activeDeck.play().catch(() => {});
-  else activeDeck.pause();
-});
+}
+playBtn.addEventListener("click", togglePlay);
+npPlayBtnEl.addEventListener("click", togglePlay);
 
 // ── Beat-matched fade-to-next ──
 async function doFadeToNext(): Promise<void> {
@@ -229,31 +301,24 @@ async function doFadeToNext(): Promise<void> {
   const next = queue[0];
   if (!next) { fading = false; return; }
 
-  // Load next into inactive deck and fade
+  // Load next into the inactive deck, start it silent, then crossfade gains.
   const outDeck = activeDeck;
   const inDeck = inactiveDeck;
+  resumeAudio();
   inDeck.src = api.audioUrl(next.path);
-  inDeck.volume = 0;
+  setDeckLevel(inDeck, 0);
   await inDeck.play().catch(() => {});
 
-  const outStartVol = outDeck.volume;
-  const fadeStart = performance.now();
+  const fadeSec = Math.max(0.1, sessionFadeMs / 1000);
+  await Promise.all([
+    fadeDeck(outDeck, 0, fadeSec),
+    fadeDeck(inDeck, 1, fadeSec),
+  ]);
 
-  await new Promise<void>((resolve) => {
-    function crossfade(): void {
-      const ratio = Math.min(1, (performance.now() - fadeStart) / sessionFadeMs);
-      outDeck.volume = outStartVol * (1 - ratio);
-      inDeck.volume = ratio;
-      if (ratio < 1) requestAnimationFrame(crossfade);
-      else {
-        outDeck.pause();
-        outDeck.src = "";
-        outDeck.volume = 1;
-        resolve();
-      }
-    }
-    requestAnimationFrame(crossfade);
-  });
+  // outgoing deck done: stop it and reset its level for next reuse
+  outDeck.pause();
+  outDeck.src = "";
+  setDeckLevel(outDeck, 1);
 
   // Swap decks; the crossfade already faded the new track in.
   activeDeck = inDeck;
@@ -291,6 +356,8 @@ function advance(): void {
     renderQueue();
     return;
   }
+  resumeAudio();
+  setDeckLevel(activeDeck, 1); // ensure full level (e.g. after a prior fade)
   activeDeck.src = api.audioUrl(next.path);
   activeDeck.play().catch(() => {});
   commitNowPlaying(next);
