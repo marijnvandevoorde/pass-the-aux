@@ -2630,7 +2630,7 @@ function render(): void {
       const sid = sessionId;
       const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
       const nowPlaying = playingDeck?.track
-        ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path }
+        ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path, by: null }
         : null;
       void api.syncSession(sid, history.snapshot(), nowPlaying).then((pending) => {
         for (const t of pending) {

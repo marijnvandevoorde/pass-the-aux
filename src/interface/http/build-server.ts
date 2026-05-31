@@ -85,7 +85,7 @@ function clearSessionCookie(res: ServerResponse): void {
 /** Routes a guest (crowd) or unauthenticated visitor may reach. The
  *  DJ SPA entry and all DJ data/mutation APIs are gated. */
 function isPublicRoute(method: string, p: string): boolean {
-  if (p === "/" || p === "/index.html") return false; // DJ SPA → login
+  if (p === "/" || p === "/index.html" || p === "/mobile" || p === "/mobile.html") return false; // DJ SPA → login
   if (!p.startsWith("/api/")) return true; // static (bundled JS/CSS, /crowd, /login)
   if (p.startsWith("/api/auth/")) return true;
   if (method === "GET" && p === "/api/version") return true;
@@ -248,6 +248,7 @@ export function buildServer(
           autoFill: boolean;
           beatSync: boolean;
           fadeSeconds: number;
+          showUpNext: boolean;
         }>;
       };
       const c = body?.config ?? {};
@@ -258,6 +259,7 @@ export function buildServer(
           beatSync: c.beatSync !== false,
           fadeSeconds:
             typeof c.fadeSeconds === "number" ? c.fadeSeconds : 8,
+          showUpNext: c.showUpNext !== false,
         },
         body?.id,
         ctx.uid, // this session is owned by the logged-in DJ
@@ -306,6 +308,7 @@ export function buildServer(
             artist: typeof o.artist === "string" ? o.artist : null,
             bpm: typeof o.bpm === "number" ? o.bpm : null,
             path: typeof o.path === "string" ? o.path : null,
+            by: typeof o.by === "string" ? o.by : null,
           });
         }
       }
@@ -336,6 +339,28 @@ export function buildServer(
       sendJson(res, 200, { ok: true });
     },
 
+    // DJ updates live session config (e.g. showUpNext toggle).
+    // Owner-only; merges only the fields provided.
+    "PATCH /api/session/config": async (req, res, _url, ctx) => {
+      const body = (await readJsonBody(req, config.bodyLimitBytes)) as {
+        id?: unknown;
+        showUpNext?: unknown;
+      };
+      const id = typeof body?.id === "string" ? body.id : "";
+      if (!sessions.has(id)) {
+        sendJson(res, 404, { error: "session not found" });
+        return;
+      }
+      if (sessions.ownerOf(id) !== ctx.uid) {
+        sendJson(res, 403, { error: "not the session owner" });
+        return;
+      }
+      if (typeof body?.showUpNext === "boolean") {
+        sessions.patchConfig(id, { showUpNext: body.showUpNext });
+      }
+      sendJson(res, 200, { ok: true });
+    },
+
     // Crowd add. Local track → enqueue by path; remote track →
     // download into the library first, then enqueue. Replays of an
     // already played/queued track are rejected.
@@ -346,16 +371,23 @@ export function buildServer(
         path?: unknown;
         bpm?: unknown;
         remoteId?: unknown;
+        by?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
       if (!sessions.has(id)) {
         sendJson(res, 404, { error: "session not found" });
         return;
       }
+      // the guest who requested it (first-name, capped) — credited in the
+      // DJ's queue and on the now-playing card.
+      const by =
+        typeof body?.by === "string" && body.by.trim() !== ""
+          ? body.by.trim().slice(0, 24)
+          : null;
       // crowd adds land in the session OWNER's library (the
       // session id is in the body, so re-scope here).
       const ownerUc = useCasesFor(sessions.ownerOf(id));
-      let item: { name: string; path: string; bpm: number | null };
+      let item: { name: string; path: string; bpm: number | null; by: string | null };
       if (
         typeof body?.remoteId === "string" &&
         body.remoteId.trim() !== ""
@@ -368,7 +400,7 @@ export function buildServer(
           body.remoteId,
           label,
         );
-        item = { name: label, path, bpm: null };
+        item = { name: label, path, bpm: null, by };
       } else {
         const path =
           typeof body?.path === "string" ? body.path.trim() : "";
@@ -383,6 +415,7 @@ export function buildServer(
               : path,
           path,
           bpm: typeof body?.bpm === "number" ? body.bpm : null,
+          by,
         };
       }
       const status = sessions.enqueue(id, item);
@@ -395,9 +428,16 @@ export function buildServer(
       }
     },
 
-    // The guest-facing crowd page is a separate static document.
-    "GET /crowd": async (_req, res, _url, ctx) => {
-      await serveStatic(res, "/crowd.html", PUBLIC_DIR);
+    "GET /crowd": async (_req, res) => {
+      await serveHtmlTemplate(res, "/crowd.html", PUBLIC_DIR, { APP_VERSION });
+    },
+
+    "GET /mobile": async (_req, res) => {
+      await serveHtmlTemplate(res, "/mobile.html", PUBLIC_DIR, { APP_VERSION });
+    },
+
+    "GET /party-mode": async (_req, res) => {
+      await serveStatic(res, "/party-mode-prototype.html", PUBLIC_DIR);
     },
 
     // ── Auth / 2FA ──────────────────────────────────────

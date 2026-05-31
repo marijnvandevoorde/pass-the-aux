@@ -5,8 +5,8 @@ import {
   sanitizeSessionId,
 } from "../../src/infrastructure/session-store.ts";
 
-const cfg = { automix: true, autoFill: false, beatSync: true, fadeSeconds: 8 };
-const item = (p: string) => ({ name: p, path: p, bpm: null });
+const cfg = { automix: true, autoFill: false, beatSync: true, fadeSeconds: 8, showUpNext: true };
+const item = (p: string) => ({ name: p, path: p, bpm: null, by: null });
 
 test("create → get round-trips; ids short & unique", () => {
   const s = new SessionStore();
