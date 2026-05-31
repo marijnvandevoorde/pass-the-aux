@@ -542,6 +542,14 @@ body {
 .lib-empty { text-align: center; color: var(--faint); font-size: 13px; padding: 40px 0; display: none; }
 .lib-empty.visible { display: block; }
 
+/* Extended (remote record store) search status + results overlay. */
+.remote-status {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--accent);
+  padding: 12px 16px 4px; text-align: center;
+}
+#libraryRemoteList, #crateRemoteList { padding-top: 6px; }
+
 /* ── Toasts ── */
 .toast-container {
   position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%);

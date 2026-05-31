@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import type { NowPlaying, SessionQueueItem } from "./api.js";
-import type { LibraryResponse } from "./types.js";
+import type { LibraryResponse, RemoteTrackInfo } from "./types.js";
 import { applyKeyVars, keyHue } from "./key-utils.js";
 import { createWaveform } from "./waveform.js";
 import { byId as must, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip } from "./dom-utils.js";
@@ -62,6 +62,8 @@ const fabCrateEl    = must<HTMLButtonElement>("fabCrate");
 const crateSearchEl = must<HTMLInputElement>("crateSearch");
 const crateListEl   = must<HTMLDivElement>("crateList");
 const crateEmptyEl  = must<HTMLDivElement>("crateEmpty");
+const remoteStatusEl = must<HTMLDivElement>("crateRemoteStatus");
+const remoteListEl  = must<HTMLDivElement>("crateRemoteList");
 const npFullEl      = must<HTMLDivElement>("npFull");
 const npCollapseEl  = must<HTMLButtonElement>("npCollapse");
 const npTitleEl     = must<HTMLDivElement>("npTitle");
@@ -341,7 +343,140 @@ playedHeadEl.addEventListener("click", () => {
 });
 
 // ── Search ──
-crateSearchEl.addEventListener("input", () => renderCrate(crateSearchEl.value));
+// Typing filters the crate client-side; pressing Enter searches the DJ's
+// selected remote record store, mirroring the desktop app. Remote results
+// overlay the crate list in the same slot.
+crateSearchEl.addEventListener("input", () => {
+  renderCrate(crateSearchEl.value);
+  if (crateSearchEl.value.trim() === "") hideRemote();
+});
+crateSearchEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") void runRemoteSearch();
+});
+
+// ── Remote (extended) search ──
+// Mirrors the desktop app's runRemoteSearch/renderRemote, reusing the same
+// `api` endpoints. The session id scopes the search to the DJ's active
+// remote store, so this always searches "the selected remote lib".
+let remoteEnabled = false;
+let remoteSeq = 0;
+let remoteAbort: AbortController | null = null;
+
+function fmtDur(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function hideRemote(): void {
+  remoteSection(false);
+  remoteListEl.innerHTML = "";
+  remoteStatusEl.textContent = "";
+}
+
+/** Toggle the remote overlay — when on, the crate list hides so the remote
+ *  results take its place. */
+function remoteSection(show: boolean): void {
+  remoteStatusEl.hidden = !show;
+  remoteListEl.hidden = !show;
+  crateListEl.hidden = show;
+  if (show) crateEmptyEl.classList.remove("visible");
+}
+
+function showRemoteStatus(msg: string): void {
+  remoteSection(true);
+  remoteStatusEl.textContent = msg;
+}
+
+async function initRemote(): Promise<void> {
+  try {
+    remoteEnabled = (await api.remoteStatus(sessionId)).enabled;
+  } catch {
+    remoteEnabled = false;
+  }
+}
+
+async function runRemoteSearch(): Promise<void> {
+  const q = crateSearchEl.value.trim();
+  if (q === "") { hideRemote(); return; }
+  if (!remoteEnabled) {
+    remoteListEl.innerHTML = "";
+    remoteListEl.hidden = true;
+    showRemoteStatus("The DJ hasn't enabled an extended record store");
+    return;
+  }
+  const seq = ++remoteSeq;
+  remoteAbort?.abort();
+  const ac = new AbortController();
+  remoteAbort = ac;
+  remoteListEl.innerHTML = "";
+  remoteListEl.hidden = true;
+  showRemoteStatus(`Searching “${q}”…`);
+  try {
+    const resp = await api.remoteSearch(q, 0, ac.signal, sessionId);
+    if (seq !== remoteSeq) return; // a newer search superseded this one
+    if (!resp.enabled) { showRemoteStatus("Extended record store not configured"); return; }
+    if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”`); return; }
+    showRemoteStatus(`${resp.items.length} of ${resp.total} for “${q}”`);
+    renderRemote(resp.items);
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return;
+    if (seq !== remoteSeq) return;
+    showRemoteStatus(`Remote search failed: ${(e as Error).message}`);
+  }
+}
+
+function renderRemote(items: RemoteTrackInfo[]): void {
+  remoteListEl.hidden = false;
+  remoteListEl.innerHTML = "";
+  for (const it of items) {
+    const titleTxt = it.version ? `${it.title} (${it.version})` : it.title;
+    const el = document.createElement("div");
+    el.className = "lib-item";
+    el.innerHTML = `
+      <span class="lib-key-rail" style="opacity:0.4"></span>
+      <div class="lib-info">
+        <div class="lib-name">${esc(titleTxt)}</div>
+        <div class="lib-meta">
+          <span class="q-bpm">${esc(it.album || "—")}</span>
+          <span class="q-dot">·</span><span>${fmtDur(it.durationSec)}</span>
+          <span class="q-dot">·</span><span style="color:var(--faint)">${esc(it.artist)}</span>
+        </div>
+      </div>
+      <button class="req-btn" data-remote-id="${esc(it.remoteId)}">REQUEST</button>`;
+    const btn = el.querySelector<HTMLButtonElement>("[data-remote-id]")!;
+    btn.addEventListener("click", () => void requestRemote(it, btn));
+    remoteListEl.appendChild(el);
+  }
+}
+
+/** Request a remote track — the server downloads it into the DJ's library
+ *  and enqueues it. */
+async function requestRemote(it: RemoteTrackInfo, btn: HTMLButtonElement): Promise<void> {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = "…";
+  const res = await api.queueToSession({
+    id: sessionId,
+    name: `${it.artist} - ${it.title}`,
+    remoteId: it.remoteId,
+    by: guest?.name ?? null,
+  });
+  if (res.ok) {
+    btn.textContent = "✓ SENT";
+    btn.classList.add("pending");
+    showToast(`Requested <b>${esc(it.title)}</b> — sent to the DJ`);
+  } else if (res.status === 409) {
+    btn.textContent = "PLAYED";
+    btn.classList.add("played");
+    showToast("That track already played this session");
+  } else {
+    btn.disabled = false;
+    btn.textContent = "REQUEST";
+    showToast(res.error || "Could not send request");
+  }
+}
 
 // ── Toast ──
 const showToast = (msg: string): void => toast(toastContEl, msg);
@@ -426,6 +561,7 @@ async function main(): Promise<void> {
   library = (await api.getLibrary({ session: sessionId, limit: 2000 }).catch(() => ({ tracks: [] }))).tracks;
   pathToTrack = new Map(library.map((t) => [t.path, t]));
 
+  void initRemote();
   applySnapshot(snap);
 
   const savedName = (() => { try { return localStorage.getItem(NAME_KEY); } catch { return null; } })();

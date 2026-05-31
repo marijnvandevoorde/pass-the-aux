@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import type { SessionQueueItem } from "./api.js";
-import type { BeatGridResponse, LibraryResponse } from "./types.js";
+import type { BeatGridResponse, LibraryResponse, RemoteTrackInfo } from "./types.js";
 import { applyKeyVars, keyHue, keyRelation, bpmDeltaLabel, TONE_VARS } from "./key-utils.js";
 import { createWaveform } from "./waveform.js";
 import { qrMatrix } from "./qr.js";
@@ -77,6 +77,8 @@ const clearBtnEl    = must<HTMLButtonElement>("clearBtn");
 const librarySearchEl = must<HTMLInputElement>("librarySearch");
 const libraryListEl = must<HTMLDivElement>("libraryList");
 const libraryEmptyEl = must<HTMLDivElement>("libraryEmpty");
+const remoteStatusEl = must<HTMLDivElement>("libraryRemoteStatus");
+const remoteListEl = must<HTMLDivElement>("libraryRemoteList");
 const shareBtnEl    = must<HTMLButtonElement>("shareBtn");
 const qrOverlayEl   = must<HTMLDivElement>("qrOverlay");
 const qrCloseEl     = must<HTMLButtonElement>("qrClose");
@@ -587,7 +589,139 @@ resetBtnEl.addEventListener("click", async () => {
 });
 
 // ── Library search ──
-librarySearchEl.addEventListener("input", () => renderLibrary(librarySearchEl.value));
+// Typing filters the loaded library client-side; pressing Enter searches
+// the selected remote record store, mirroring the desktop app. The remote
+// results overlay the local list in the same slot.
+librarySearchEl.addEventListener("input", () => {
+  renderLibrary(librarySearchEl.value);
+  if (librarySearchEl.value.trim() === "") hideRemote();
+});
+librarySearchEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") void runRemoteSearch();
+});
+
+// ── Remote (extended) search ──
+// Mirrors the desktop app's runRemoteSearch/renderRemote, reusing the same
+// `api` endpoints. The active remote store is resolved server-side, so this
+// always searches "the selected remote lib".
+let remoteEnabled = false;
+let remoteSeq = 0;
+let remoteAbort: AbortController | null = null;
+
+function fmtDur(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function hideRemote(): void {
+  remoteSection(false);
+  remoteListEl.innerHTML = "";
+  remoteStatusEl.textContent = "";
+}
+
+/** Toggle the remote overlay on/off — when on, the local list hides so the
+ *  remote results take its place. */
+function remoteSection(show: boolean): void {
+  remoteStatusEl.hidden = !show;
+  remoteListEl.hidden = !show;
+  libraryListEl.hidden = show;
+  if (show) libraryEmptyEl.classList.remove("visible");
+}
+
+function showRemoteStatus(msg: string): void {
+  remoteSection(true);
+  remoteStatusEl.textContent = msg;
+}
+
+async function initRemote(): Promise<void> {
+  try {
+    remoteEnabled = (await api.remoteStatus()).enabled;
+  } catch {
+    remoteEnabled = false;
+  }
+}
+
+async function runRemoteSearch(): Promise<void> {
+  const q = librarySearchEl.value.trim();
+  if (q === "") { hideRemote(); return; }
+  if (!remoteEnabled) {
+    remoteListEl.innerHTML = "";
+    remoteListEl.hidden = true;
+    showRemoteStatus("No remote record store — add one in Settings");
+    return;
+  }
+  const seq = ++remoteSeq;
+  remoteAbort?.abort();
+  const ac = new AbortController();
+  remoteAbort = ac;
+  remoteListEl.innerHTML = "";
+  remoteListEl.hidden = true;
+  showRemoteStatus(`Searching “${q}”…`);
+  try {
+    const resp = await api.remoteSearch(q, 0, ac.signal);
+    if (seq !== remoteSeq) return; // a newer search superseded this one
+    if (!resp.enabled) { showRemoteStatus("Remote library is not configured"); return; }
+    if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”`); return; }
+    showRemoteStatus(`${resp.items.length} of ${resp.total} for “${q}”`);
+    renderRemote(resp.items);
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return;
+    if (seq !== remoteSeq) return;
+    showRemoteStatus(`Remote search failed: ${(e as Error).message}`);
+  }
+}
+
+function renderRemote(items: RemoteTrackInfo[]): void {
+  remoteListEl.hidden = false;
+  remoteListEl.innerHTML = "";
+  for (const it of items) {
+    const titleTxt = it.version ? `${it.title} (${it.version})` : it.title;
+    const item = document.createElement("div");
+    item.className = "lib-item";
+    item.innerHTML = `
+      <span class="lib-key-rail" style="opacity:0.4"></span>
+      <div class="lib-info">
+        <div class="lib-name">${esc(titleTxt)}</div>
+        <div class="lib-meta">
+          <span class="q-bpm">${esc(it.album || "—")}</span>
+          <span class="q-dot">·</span><span>${fmtDur(it.durationSec)}</span>
+          <span class="q-dot">·</span><span style="color:var(--faint)">${esc(it.artist)}</span>
+        </div>
+      </div>
+      <button class="add-btn" data-remote-id="${esc(it.remoteId)}">↓ GET</button>`;
+    const btn = item.querySelector<HTMLButtonElement>("[data-remote-id]")!;
+    btn.addEventListener("click", () => void importRemote(it, btn));
+    remoteListEl.appendChild(item);
+  }
+}
+
+/** Download a remote track into the library, then queue it. */
+async function importRemote(it: RemoteTrackInfo, btn: HTMLButtonElement): Promise<void> {
+  if (btn.dataset.done === "1") return;
+  btn.disabled = true;
+  btn.textContent = "…";
+  try {
+    const { path } = await api.remoteImport(it.remoteId, `${it.artist} - ${it.title}`);
+    btn.dataset.done = "1";
+    btn.classList.add("added");
+    btn.textContent = "✓ ADDED";
+    btn.disabled = false;
+    addToQueue({
+      path,
+      name: it.title,
+      artist: it.artist,
+      camelot: null,
+      bpm: null,
+      by: "you",
+    });
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "↓ GET";
+    showToast(`Download failed: ${esc((e as Error).message)}`);
+  }
+}
 
 // ── Show Up Next toggle ──
 let showUpNext = (() => { try { return localStorage.getItem("pta-show-upnext") !== "false"; } catch { return true; } })();
@@ -706,6 +840,7 @@ async function main(): Promise<void> {
   library = await api.getLibrary({ limit: 2000 }).then((r) => r.tracks).catch(() => []);
   pathToTrack = new Map(library.map((t) => [t.path, t]));
 
+  void initRemote();
   renderLibrary();
   renderNow();
   renderQueue();
