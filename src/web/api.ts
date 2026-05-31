@@ -224,6 +224,7 @@ export const api = {
       autoFill: boolean;
       beatSync: boolean;
       fadeSeconds: number;
+      showUpNext?: boolean;
     },
     id?: string,
   ): Promise<{ id: string; url: string }> {
@@ -241,7 +242,13 @@ export const api = {
   async syncSession(
     id: string,
     played: string[],
-    nowPlaying?: { name: string; artist: string | null; bpm: number | null; path: string | null } | null,
+    nowPlaying?: {
+      name: string;
+      artist: string | null;
+      bpm: number | null;
+      path: string | null;
+      by: string | null;
+    } | null,
   ): Promise<SessionQueueItem[]> {
     try {
       const res = await fetch("/api/session/sync", {
@@ -260,6 +267,17 @@ export const api = {
   /** Reset the played-tracks dedup set on a running session. Returns
    *  true on success; false when the session doesn't exist or the
    *  caller isn't the owning DJ. */
+  async patchSessionConfig(
+    id: string,
+    patch: { showUpNext?: boolean },
+  ): Promise<void> {
+    await fetch("/api/session/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...patch }),
+    });
+  },
+
   async clearSessionPlayed(id: string): Promise<boolean> {
     try {
       const res = await fetch("/api/session/clear-played", {
@@ -292,6 +310,7 @@ export const api = {
     path?: string;
     bpm?: number | null;
     remoteId?: string;
+    by?: string | null;
   }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     try {
       const res = await fetch("/api/session/queue", {
@@ -316,6 +335,8 @@ export interface SessionQueueItem {
   name: string;
   path: string;
   bpm: number | null;
+  /** the guest who requested this track, if any. */
+  by: string | null;
 }
 
 export interface NowPlaying {
@@ -323,6 +344,8 @@ export interface NowPlaying {
   artist: string | null;
   bpm: number | null;
   path: string | null;
+  /** the guest who requested this track, if any. */
+  by: string | null;
 }
 
 export interface SessionSnapshot {
@@ -332,6 +355,7 @@ export interface SessionSnapshot {
     autoFill: boolean;
     beatSync: boolean;
     fadeSeconds: number;
+    showUpNext: boolean;
   };
   pending: SessionQueueItem[];
   played: string[];

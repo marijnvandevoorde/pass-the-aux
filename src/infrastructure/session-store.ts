@@ -11,6 +11,8 @@ export interface NowPlaying {
   artist: string | null;
   bpm: number | null;
   path: string | null;
+  /** the guest who requested this track, if any. */
+  by: string | null;
 }
 
 export interface SessionConfigDTO {
@@ -18,12 +20,15 @@ export interface SessionConfigDTO {
   autoFill: boolean;
   beatSync: boolean;
   fadeSeconds: number;
+  showUpNext: boolean;
 }
 
 export interface SessionQueueItem {
   name: string;
   path: string;
   bpm: number | null;
+  /** the guest who requested this track, if any. */
+  by: string | null;
 }
 
 export interface SessionSnapshot {
@@ -163,9 +168,15 @@ export class SessionStore {
     return out;
   }
 
-  /** Wipe the played-tracks dedup set so guests can re-request previously
-   *  played songs. Leaves the pending queue and ownership untouched.
-   *  Returns true when the session existed. */
+  /** Merge a partial config into a live session (e.g. the DJ toggling
+   *  "show queue to crowd"). Returns true when the session existed. */
+  patchConfig(id: string, patch: Partial<SessionConfigDTO>): boolean {
+    const e = this.#m.get(id);
+    if (!e) return false;
+    e.config = { ...e.config, ...patch };
+    return true;
+  }
+
   clearPlayed(id: string): boolean {
     const e = this.#m.get(id);
     if (!e) return false;
