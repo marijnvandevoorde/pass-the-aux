@@ -521,6 +521,7 @@ body {
 .lib-search:focus { border-color: rgba(56,224,196,0.45); }
 .search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--faint); display: flex; pointer-events: none; }
 .lib-list { padding: 2px 14px 120px; display: flex; flex-direction: column; gap: 6px; }
+.lib-list[hidden] { display: none; }
 .lib-item {
   display: flex; align-items: center; gap: 11px;
   padding: var(--row-pad); background: var(--surface);
@@ -548,7 +549,7 @@ body {
   letter-spacing: 0.04em; color: var(--accent);
   padding: 12px 16px 4px; text-align: center;
 }
-#libraryRemoteList, #crateRemoteList { padding-top: 6px; }
+#crateRemoteList { padding-top: 6px; }
 
 /* ── Toasts ── */
 .toast-container {

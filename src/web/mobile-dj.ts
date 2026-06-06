@@ -519,7 +519,8 @@ function renderLibrary(filter = ""): void {
     : library;
 
   libraryListEl.innerHTML = "";
-  libraryEmptyEl.classList.toggle("visible", visible.length === 0);
+  // Don't surface the empty message while the remote overlay owns the slot.
+  libraryEmptyEl.classList.toggle("visible", visible.length === 0 && !libraryListEl.hidden);
 
   const cap = 200;
   visible.slice(0, cap).forEach((tr) => {
@@ -598,6 +599,7 @@ librarySearchEl.addEventListener("input", () => {
 });
 librarySearchEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") void runRemoteSearch();
+  else if (e.key === "Escape") { e.preventDefault(); hideRemote(); }
 });
 
 // ── Remote (extended) search ──
@@ -615,23 +617,22 @@ function fmtDur(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Drop the remote overlay and restore the local library list. */
 function hideRemote(): void {
-  remoteSection(false);
-  remoteListEl.innerHTML = "";
+  libraryListEl.hidden = false;
+  remoteStatusEl.hidden = true;
   remoteStatusEl.textContent = "";
+  remoteListEl.hidden = true;
+  remoteListEl.innerHTML = "";
 }
 
-/** Toggle the remote overlay on/off — when on, the local list hides so the
- *  remote results take its place. */
-function remoteSection(show: boolean): void {
-  remoteStatusEl.hidden = !show;
-  remoteListEl.hidden = !show;
-  libraryListEl.hidden = show;
-  if (show) libraryEmptyEl.classList.remove("visible");
-}
-
+/** Show a status line in the library list's slot (loading / error / empty).
+ *  No results are shown yet, so the local list + remote list are hidden. */
 function showRemoteStatus(msg: string): void {
-  remoteSection(true);
+  libraryListEl.hidden = true;
+  libraryEmptyEl.classList.remove("visible");
+  remoteListEl.hidden = true;
+  remoteStatusEl.hidden = false;
   remoteStatusEl.textContent = msg;
 }
 
@@ -664,7 +665,6 @@ async function runRemoteSearch(): Promise<void> {
     if (seq !== remoteSeq) return; // a newer search superseded this one
     if (!resp.enabled) { showRemoteStatus("Remote library is not configured"); return; }
     if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”`); return; }
-    showRemoteStatus(`${resp.items.length} of ${resp.total} for “${q}”`);
     renderRemote(resp.items);
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
@@ -674,6 +674,12 @@ async function runRemoteSearch(): Promise<void> {
 }
 
 function renderRemote(items: RemoteTrackInfo[]): void {
+  // Take over the library list's slot: hide the local list and the status
+  // line so the remote results render exactly like the library results.
+  libraryListEl.hidden = true;
+  libraryEmptyEl.classList.remove("visible");
+  remoteStatusEl.hidden = true;
+  remoteStatusEl.textContent = "";
   remoteListEl.hidden = false;
   remoteListEl.innerHTML = "";
   for (const it of items) {
