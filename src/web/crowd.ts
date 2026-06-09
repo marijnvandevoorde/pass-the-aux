@@ -369,23 +369,22 @@ function fmtDur(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Drop the remote overlay and restore the local crate list. */
 function hideRemote(): void {
-  remoteSection(false);
-  remoteListEl.innerHTML = "";
+  crateListEl.hidden = false;
+  remoteStatusEl.hidden = true;
   remoteStatusEl.textContent = "";
+  remoteListEl.hidden = true;
+  remoteListEl.innerHTML = "";
 }
 
-/** Toggle the remote overlay — when on, the crate list hides so the remote
- *  results take its place. */
-function remoteSection(show: boolean): void {
-  remoteStatusEl.hidden = !show;
-  remoteListEl.hidden = !show;
-  crateListEl.hidden = show;
-  if (show) crateEmptyEl.classList.remove("visible");
-}
-
+/** Show a status line in the crate list's slot (loading / error / empty).
+ *  No results are shown yet, so the local list + remote list are hidden. */
 function showRemoteStatus(msg: string): void {
-  remoteSection(true);
+  crateListEl.hidden = true;
+  crateEmptyEl.classList.remove("visible");
+  remoteListEl.hidden = true;
+  remoteStatusEl.hidden = false;
   remoteStatusEl.textContent = msg;
 }
 
@@ -418,7 +417,6 @@ async function runRemoteSearch(): Promise<void> {
     if (seq !== remoteSeq) return; // a newer search superseded this one
     if (!resp.enabled) { showRemoteStatus("Extended record store not configured"); return; }
     if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”`); return; }
-    showRemoteStatus(`${resp.items.length} of ${resp.total} for “${q}”`);
     renderRemote(resp.items);
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
@@ -428,6 +426,12 @@ async function runRemoteSearch(): Promise<void> {
 }
 
 function renderRemote(items: RemoteTrackInfo[]): void {
+  // Take over the crate list's slot: hide the local list and the status
+  // line so the remote results render exactly like the crate results.
+  crateListEl.hidden = true;
+  crateEmptyEl.classList.remove("visible");
+  remoteStatusEl.hidden = true;
+  remoteStatusEl.textContent = "";
   remoteListEl.hidden = false;
   remoteListEl.innerHTML = "";
   for (const it of items) {
