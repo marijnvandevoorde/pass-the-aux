@@ -22,10 +22,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "playwright": "^1.52.0",
+    "playwright": "^1.61.1",
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "mysql2": "^3.22.4"
+    "mysql2": "^3.22.5"
   }
 }
