@@ -1,35 +1,66 @@
 name: Dependabot auto-merge
 
-# Merges Dependabot PRs for minor and patch version updates as soon as they
-# are opened. Major updates are skipped here so they can be reviewed manually.
+# Merges Dependabot PRs for minor and patch version updates once every other
+# check on the PR has finished and passed. Major updates are left for manual
+# review.
 #
-# Uses a direct merge (not `gh pr merge --auto`): the auto-merge queue is not
-# available on private repos without a paid plan. A direct merge happens
-# immediately, so if you later add required status checks, revisit this
-# workflow to wait for them before merging.
+# A direct merge is used because the GitHub auto-merge queue is not available
+# on private repos without a paid plan; this job waits for sibling checks
+# itself before merging. PRs with no checks merge promptly.
 on: pull_request
 
 permissions:
   contents: write
   pull-requests: write
+  checks: read
 
 jobs:
   dependabot-auto-merge:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Only act on PRs opened by Dependabot.
     if: github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Merge minor and patch updates
+      - name: Wait for checks, then merge minor and patch updates
         if: |
           steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
           steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --squash "$PR_URL"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Give sibling CI workflows a moment to register their check runs.
+          sleep 30
+          ready=false
+          for attempt in $(seq 1 40); do
+            runs=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --paginate \
+              --jq '.check_runs[]' | jq -s 'map(select(.name != "dependabot-auto-merge"))')
+            total=$(echo "$runs" | jq 'length')
+            pending=$(echo "$runs" | jq '[.[] | select(.status != "completed")] | length')
+            failed=$(echo "$runs" | jq '[.[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")] | length')
+            echo "Attempt $attempt: $total check(s), $pending pending, $failed not passing."
+            if [ "$failed" -gt 0 ]; then
+              echo "::warning::A check on this PR did not pass — leaving it open for review."
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ]; then
+              ready=true
+              break
+            fi
+            sleep 30
+          done
+          if [ "$ready" != "true" ]; then
+            echo "::warning::Checks did not finish in time — leaving the PR open."
+            exit 1
+          fi
+          gh pr merge --squash "$PR_URL"
+          echo "Merged $PR_URL"

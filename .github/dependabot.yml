@@ -21,3 +21,32 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # Base images in Dockerfile and docker-compose.yml at the repo root.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      docker-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Actions used by the workflows in .github/workflows/.
+  # Grouped too: action minor/patch bumps are routine and should land on their own.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
