@@ -26,6 +26,6 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "mysql2": "^3.23.0"
+    "mysql2": "^3.23.1"
   }
 }
