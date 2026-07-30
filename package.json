@@ -21,11 +21,11 @@
     "test:e2e": "npm run build && node test/e2e/run.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "playwright": "^1.61.1",
+    "@types/node": "^26.1.2",
+    "playwright": "^1.62.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "mysql2": "^3.23.1"
+    "mysql2": "^3.23.2"
   }
 }
