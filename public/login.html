@@ -97,6 +97,24 @@
         margin: 8px 0;
       }
       .hint { font-size: 12px; color: var(--dim); margin: 10px 0 0; }
+      .demo {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      .demo .demo-label {
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin: 0 0 4px;
+      }
+      .demo code {
+        font-family: ui-monospace, Menlo, monospace;
+        color: var(--accent);
+      }
       button.ghost {
         width: 100%;
         margin-top: 10px;
@@ -119,6 +137,10 @@
       <!-- Sign in -->
       <section id="panel-login">
         <p class="sub">Sign in to your booth.</p>
+        <div class="demo">
+          <p class="demo-label">Try the demo</p>
+          username <code>demo</code> · password <code>demodemo</code>
+        </div>
         <label for="li-user">Username</label>
         <input id="li-user" autocomplete="username" autocapitalize="off" spellcheck="false" />
         <label for="li-pass">Password</label>
