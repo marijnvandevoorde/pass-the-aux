@@ -116,3 +116,19 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+  # Keep the five newest tags (and the platform/attestation manifests they
+  # reference); drop every older version. Private packages share the Actions
+  # storage quota, and untagged leftovers were what filled it.
+  prune:
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          package: pass-the-aux
+          keep-n-tagged: 5
+          delete-untagged: true
