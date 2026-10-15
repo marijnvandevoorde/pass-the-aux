@@ -21,8 +21,8 @@
     "test:e2e": "npm run build && node test/e2e/run.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
-    "playwright": "^1.63.0",
+    "@types/node": "^26.6.5",
+    "playwright": "^1.64.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
