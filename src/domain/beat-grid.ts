@@ -38,8 +38,10 @@ export const BEAT_GRID_ANALYZER_VERSION = 1;
  *  re-grids the library when the `BEAT_ANALYZER` toggle switches engines
  *  (each analyzer reports its own version via `beatAnalyzerVersion`).
  *  3: the library BPM is taken from the same run as the grid, so every
- *  track is re-gridded once to replace BPMs that came from a fallback. */
-export const BEATTHIS_ANALYZER_VERSION = 3;
+ *  track is re-gridded once to replace BPMs that came from a fallback.
+ *  4: pass-the-beat's BPM is no longer quantised to its 50 fps frame
+ *  grid (125 / 130.4 instead of 128); re-grid to pick up the real one. */
+export const BEATTHIS_ANALYZER_VERSION = 4;
 
 /** Resolve the first "solid" cuepoint in seconds, or `null` when the
  *  grid has no solid run. Centralised so both browser and server agree. */
