@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="passtheaux.png" alt="Pass the Aux" width="180" />
+  <img src="icon.png" alt="Pass the Aux" width="180" />
 </p>
 
 # Pass the Aux
