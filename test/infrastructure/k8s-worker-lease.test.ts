@@ -31,6 +31,7 @@ function fakeCluster(bootPolls = 2) {
 
 function worker(c: ReturnType<typeof fakeCluster>, over: Partial<ConstructorParameters<typeof ScaledWorker>[0]> = {}) {
   return new ScaledWorker({
+    name: "pass-the-beat",
     scale: c.scale,
     fetchImpl: c.fetchImpl,
     healthUrl: "http://pass-the-beat:8000/healthz",
@@ -118,6 +119,41 @@ test("a worker left running by someone else is scaled down when idle", async () 
   try {
     await wait(100);
     assert.equal(c.replicas, 0);
+  } finally {
+    w.close();
+  }
+});
+
+test("warm() starts the worker without holding it, so it still idles to zero", async () => {
+  const c = fakeCluster(1);
+  const w = worker(c, { idleMs: 50 });
+  try {
+    w.warm();
+    w.warm(); // a second warm-up while starting shares the same start
+    await wait(20);
+    assert.equal(c.replicas, 1);
+    assert.deepEqual(c.scales, [1]);
+    await w.acquire(); // already up: no new scale
+    w.release();
+    assert.deepEqual(c.scales, [1]);
+    await wait(200);
+    assert.deepEqual(c.scales, [1, 0]);
+  } finally {
+    w.close();
+  }
+});
+
+test("a failed start throws the configured error and names the Deployment", async () => {
+  class Custom extends Error {}
+  const c = fakeCluster(1_000_000);
+  const w = worker(c, {
+    name: "spotify-api",
+    readyTimeoutMs: 20,
+    unavailable: (m) => new Custom(m),
+  });
+  try {
+    await assert.rejects(w.acquire(), (e: unknown) => e instanceof Custom && /spotify-api did not start/.test(e.message));
+    await assert.rejects(w.acquire(), /spotify-api: last start failed, backing off/);
   } finally {
     w.close();
   }

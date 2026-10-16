@@ -66,4 +66,9 @@ export interface RemoteSource {
    *  the audio format; the mixer adapts to whatever `Content-Type` it
    *  receives. */
   download(remoteId: string): Promise<RemoteAudio>;
+
+  /** Optional hint that the source is about to be used (the user opened
+   *  the app). A source that runs on demand starts itself in the
+   *  background; must not throw or block. */
+  prepare?(): void;
 }

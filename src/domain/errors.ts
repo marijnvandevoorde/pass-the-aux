@@ -7,6 +7,7 @@ export type ErrorCode =
   | "PAYLOAD_TOO_LARGE"
   | "REMOTE_DISABLED"
   | "REMOTE_FAILED"
+  | "REMOTE_STARTING"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
   | "PLAN_REQUIRED"
@@ -77,6 +78,15 @@ export class RemoteDisabledError extends DomainError {
 export class RemoteSourceError extends DomainError {
   constructor(message: string) {
     super(`remote library: ${message}`, "REMOTE_FAILED");
+  }
+}
+
+/** The remote record store is being started (it runs on demand) and
+ *  wasn't ready in time for this request. Nothing failed: the same
+ *  request works in a moment. */
+export class RemoteStartingError extends DomainError {
+  constructor(name: string) {
+    super(`${name} is starting up, try again in a moment`, "REMOTE_STARTING");
   }
 }
 

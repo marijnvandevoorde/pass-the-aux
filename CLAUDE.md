@@ -89,6 +89,27 @@ means "analysed, no pulse" (stored so it isn't retried; the API serves
 it as 404). With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
 scales the sidecar up for a batch and back to zero when idle.
 
+## spotify-api on demand
+
+The same `ScaledWorker` runs spotify-api (the Spotify remote record
+store, repo `sptf`) on demand when `SPOTIFY_API_K8S_DEPLOYMENT` is set.
+`main.ts` wraps an active `pta` remote whose base URL points at
+`SPOTIFY_API_URL` in `OnDemandRemoteSource`: `GET /api/remote-status`
+(asked when the app loads) warms it up, every search/import holds it,
+and a call that finds it down waits `SPOTIFY_API_WAIT_SECONDS` before
+answering 503 "starting up, try again in a moment" (`RemoteStartingError`)
+while the start carries on. It goes back to zero after
+`SPOTIFY_API_IDLE_SECONDS` (default 900) without Spotify calls.
+spotify-api keeps no state a restart would lose: a cold start just logs
+in to Spotify again.
+
+## Deploying
+
+`npm run deploy` (`scripts/deploy.sh`) runs the shared `sv-deploy` from
+the Oracle repo with `deploy.env`: it builds origin/main, rolls the
+`pass-the-aux` Deployment on the cluster sv-oke and records the tag in
+the Oracle repo. The ghcr/VPS flow is history.
+
 ## Companion projects (external repos)
 
 Two optional companion services used to live here as submodules; they're

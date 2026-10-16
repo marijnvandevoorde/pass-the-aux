@@ -77,3 +77,14 @@ test("enabled() reflects the resolved source", async () => {
     false,
   );
 });
+
+test("enabled() tells an enabled source to get ready, a disabled one not", async () => {
+  for (const enabled of [true, false]) {
+    let prepared = 0;
+    const { resolve } = fakeSource(enabled);
+    const source = (await resolve())!;
+    source.prepare = () => void prepared++;
+    await new SearchRemote(async () => source).enabled();
+    assert.equal(prepared, enabled ? 1 : 0);
+  }
+});

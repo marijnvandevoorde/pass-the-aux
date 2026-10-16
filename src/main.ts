@@ -54,7 +54,9 @@ import {
   s3PrefixReader,
 } from "./infrastructure/s3-library.ts";
 import { LibraryChangeNotifier } from "./infrastructure/library-change-notifier.ts";
-import { ALWAYS_UP, type WorkerLease } from "./infrastructure/beat-this-analyzer.ts";
+import { ALWAYS_UP, type WorkerLease } from "./infrastructure/worker-lease.ts";
+import { OnDemandRemoteSource, pointsAt } from "./infrastructure/on-demand-remote-source.ts";
+import { RemoteSourceError } from "./domain/errors.ts";
 import { ScaledWorker, inClusterScale } from "./infrastructure/k8s-worker-lease.ts";
 import type { AudioSource } from "./domain/ports/audio-source.ts";
 import type { TrackRepository } from "./domain/ports/track-repository.ts";
@@ -108,6 +110,7 @@ export function createApp(
     config.beatAnalyzer === "pass-the-beat" &&
     config.passTheBeatScaling
       ? new ScaledWorker({
+          name: "pass-the-beat",
           scale: inClusterScale(
             config.passTheBeatScaling.deployment,
             config.passTheBeatScaling.namespace,
@@ -118,14 +121,42 @@ export function createApp(
           backoffMs: config.passTheBeatScaling.backoffMs,
         })
       : ALWAYS_UP;
+  // spotify-api on demand (Kubernetes), likewise; null = always on.
+  const spotifyScaling = opts.backgroundWatch ? config.spotifyApiScaling : null;
+  const spotifyWorker = spotifyScaling
+    ? new ScaledWorker({
+        name: "spotify-api",
+        scale: inClusterScale(spotifyScaling.deployment, spotifyScaling.namespace),
+        healthUrl: `${config.spotifyApiUrl}/healthz`,
+        idleMs: spotifyScaling.idleMs,
+        readyTimeoutMs: spotifyScaling.readyTimeoutMs,
+        backoffMs: spotifyScaling.backoffMs,
+        unavailable: (m) => new RemoteSourceError(m),
+      })
+    : null;
   const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs, users);
 
   /** Per-user resolver: looks up the active remote-library row and
    *  turns it into a runtime RemoteSource. Remotes are managed entirely
    *  through Settings → Remote record stores. */
+  const onDemandLogged = new Set<string>();
   const resolveActiveRemote = async (uid: string) => {
     const row = await remoteLibs.getActive(uid);
-    return row === null ? null : buildRemoteSource(row);
+    const source = row === null ? null : buildRemoteSource(row);
+    if (
+      source !== null &&
+      spotifyWorker !== null &&
+      spotifyScaling !== null &&
+      row?.kind === "pta" &&
+      pointsAt(row.baseUrl, config.spotifyApiUrl)
+    ) {
+      if (!onDemandLogged.has(row.id)) {
+        onDemandLogged.add(row.id);
+        console.log(`remote store "${row.name}" runs on spotify-api, started on demand`);
+      }
+      return new OnDemandRemoteSource(source, spotifyWorker, spotifyScaling.waitMs);
+    }
+    return source;
   };
 
   const coverSource = new RemoteCoverArtSource(config.coverLookup);

@@ -104,3 +104,32 @@ test("pass-the-beat scaling is off unless a Deployment is named", () => {
     },
   );
 });
+
+test("spotify-api scaling is off unless a Deployment is named", () => {
+  const off = loadConfig({} as NodeJS.ProcessEnv);
+  assert.equal(off.spotifyApiScaling, null);
+  assert.equal(off.spotifyApiUrl, "http://spotify-api:8000");
+  assert.deepEqual(
+    loadConfig({
+      SPOTIFY_API_K8S_DEPLOYMENT: "spotify-api",
+      SPOTIFY_API_URL: "http://sptf:9000/",
+    } as NodeJS.ProcessEnv).spotifyApiScaling,
+    {
+      deployment: "spotify-api",
+      namespace: "",
+      idleMs: 900_000,
+      readyTimeoutMs: 300_000,
+      backoffMs: 600_000,
+      waitMs: 25_000,
+    },
+  );
+  const c = loadConfig({
+    SPOTIFY_API_K8S_DEPLOYMENT: "spotify-api",
+    SPOTIFY_API_URL: "http://sptf:9000/",
+    SPOTIFY_API_IDLE_SECONDS: "60",
+    SPOTIFY_API_WAIT_SECONDS: "5",
+  } as NodeJS.ProcessEnv);
+  assert.equal(c.spotifyApiUrl, "http://sptf:9000");
+  assert.equal(c.spotifyApiScaling?.idleMs, 60_000);
+  assert.equal(c.spotifyApiScaling?.waitMs, 5_000);
+});

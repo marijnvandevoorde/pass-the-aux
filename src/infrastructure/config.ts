@@ -4,6 +4,17 @@ import type { S3Settings } from "./s3-bucket.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
+/** A Kubernetes Deployment this app runs on demand: scaled to 1 when
+ *  needed, back to 0 once idle (needs get/patch on its deployments/scale). */
+export interface WorkerScaling {
+  deployment: string;
+  /** Empty = this pod's own namespace. */
+  namespace: string;
+  idleMs: number;
+  readyTimeoutMs: number;
+  backoffMs: number;
+}
+
 export interface Config {
   host: string;
   port: number;
@@ -50,14 +61,17 @@ export interface Config {
   /** Run pass-the-beat on demand: the Kubernetes Deployment this app
    *  scales to 1 when tracks need a grid and back to 0 when idle. Null
    *  (the default) = the sidecar is assumed to be running all the time. */
-  passTheBeatScaling: {
-    deployment: string;
-    /** Empty = this pod's own namespace. */
-    namespace: string;
-    idleMs: number;
-    readyTimeoutMs: number;
-    backoffMs: number;
-  } | null;
+  passTheBeatScaling: WorkerScaling | null;
+  /** Where spotify-api (the Spotify remote record store) answers. A
+   *  remote store whose base URL points here is run on demand when
+   *  `spotifyApiScaling` is set. */
+  spotifyApiUrl: string;
+  /** Run spotify-api on demand: started when someone opens the app or
+   *  a Spotify call finds it down, stopped after `idleMs` without
+   *  Spotify calls. A call waits at most `waitMs` for a cold start
+   *  before answering "starting up, try again". Null (the default) =
+   *  it runs all the time. */
+  spotifyApiScaling: (WorkerScaling & { waitMs: number }) | null;
   /** Where the music library lives. Null = `musicDir` on disk; set =
    *  an S3-compatible bucket (keys `<uid>/<file>`, same layout). */
   s3: S3Settings | null;
@@ -118,18 +132,47 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     passTheBeatUrl:
       (env.PASS_THE_BEAT_URL ?? "").trim().replace(/\/+$/, "") ||
       "http://pass-the-beat:8000",
-    passTheBeatScaling: (env.PASS_THE_BEAT_K8S_DEPLOYMENT ?? "").trim()
-      ? {
-          deployment: (env.PASS_THE_BEAT_K8S_DEPLOYMENT ?? "").trim(),
-          namespace: (env.PASS_THE_BEAT_K8S_NAMESPACE ?? "").trim(),
-          idleMs: positiveInt(env.PASS_THE_BEAT_IDLE_SECONDS, 120) * 1000,
-          readyTimeoutMs:
-            positiveInt(env.PASS_THE_BEAT_READY_TIMEOUT_SECONDS, 900) * 1000,
-          backoffMs: positiveInt(env.PASS_THE_BEAT_BACKOFF_SECONDS, 1800) * 1000,
-        }
-      : null,
+    passTheBeatScaling: workerScaling(env, "PASS_THE_BEAT", {
+      idle: 120,
+      readyTimeout: 900,
+      backoff: 1800,
+    }),
+    spotifyApiUrl:
+      (env.SPOTIFY_API_URL ?? "").trim().replace(/\/+$/, "") ||
+      "http://spotify-api:8000",
+    spotifyApiScaling: spotifyApiScaling(env),
     s3: loadS3(env),
   });
+}
+
+/** `<PREFIX>_K8S_DEPLOYMENT` and friends (seconds in the env), or null
+ *  when no Deployment is named. */
+function workerScaling(
+  env: NodeJS.ProcessEnv,
+  prefix: string,
+  defaults: { idle: number; readyTimeout: number; backoff: number },
+): WorkerScaling | null {
+  const deployment = (env[`${prefix}_K8S_DEPLOYMENT`] ?? "").trim();
+  if (deployment === "") return null;
+  return {
+    deployment,
+    namespace: (env[`${prefix}_K8S_NAMESPACE`] ?? "").trim(),
+    idleMs: positiveInt(env[`${prefix}_IDLE_SECONDS`], defaults.idle) * 1000,
+    readyTimeoutMs:
+      positiveInt(env[`${prefix}_READY_TIMEOUT_SECONDS`], defaults.readyTimeout) * 1000,
+    backoffMs: positiveInt(env[`${prefix}_BACKOFF_SECONDS`], defaults.backoff) * 1000,
+  };
+}
+
+function spotifyApiScaling(env: NodeJS.ProcessEnv): Config["spotifyApiScaling"] {
+  const base = workerScaling(env, "SPOTIFY_API", {
+    idle: 900,
+    readyTimeout: 300,
+    backoff: 600,
+  });
+  return base === null
+    ? null
+    : { ...base, waitMs: positiveInt(env.SPOTIFY_API_WAIT_SECONDS, 25) * 1000 };
 }
 
 /** S3 settings when S3_BUCKET is set; the rest is then required. */

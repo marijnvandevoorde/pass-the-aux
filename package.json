@@ -13,6 +13,7 @@
     "start": "npm run build && node server.ts",
     "dev": "npm run build && (trap 'kill 0' EXIT; tsc -p tsconfig.web.json --watch --preserveWatchOutput & node --watch server.ts)",
     "serve": "node server.ts",
+    "deploy": "scripts/deploy.sh",
     "test": "node --test \"test/**/*.test.ts\"",
     "seed-db": "node test/visual/seed-db.mjs",
     "visual-server": "ENV_FILE=/dev/null MUSIC_DIR=./music SQLITE_PATH=test/visual/test.sqlite node server.ts",

@@ -23,6 +23,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   PAYLOAD_TOO_LARGE: 413,
   REMOTE_DISABLED: 503,
   REMOTE_FAILED: 502,
+  REMOTE_STARTING: 503,
   NOT_FOUND: 404,
   UNAUTHORIZED: 401,
   PLAN_REQUIRED: 403,
@@ -40,11 +41,14 @@ export function sendError(res: ServerResponse, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   // Surface server-side faults (e.g. a 502 from the remote library) in
   // the process log / `docker logs`; 4xx are expected client errors.
-  if (status >= 500) {
+  // A remote that is still starting is expected, not a fault.
+  const expected = err instanceof DomainError && err.code === "REMOTE_STARTING";
+  if (status >= 500 && !expected) {
     console.error(
       `[error] HTTP ${status}: ${message}`,
       err instanceof Error && err.stack ? `\n${err.stack}` : "",
     );
   }
+  if (expected) res.setHeader("Retry-After", "5");
   sendJson(res, status, { error: message });
 }

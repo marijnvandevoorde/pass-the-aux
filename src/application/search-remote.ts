@@ -17,10 +17,13 @@ export class SearchRemote {
   }
 
   /** Whether the user has an enabled active remote. Async because the
-   *  resolver typically hits the DB. */
+   *  resolver typically hits the DB. The client asks this when the app
+   *  loads, so an enabled source is also told to get ready. */
   async enabled(): Promise<boolean> {
     const s = await this.#resolve();
-    return s !== null && s.enabled;
+    if (s === null || !s.enabled) return false;
+    s.prepare?.();
+    return true;
   }
 
   /** Validates input, then returns one page of remote results. */

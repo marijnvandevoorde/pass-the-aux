@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import https from "node:https";
 import { AnalyzerUnavailableError } from "../domain/errors.ts";
-import type { WorkerLease } from "./beat-this-analyzer.ts";
+import type { WorkerLease } from "./worker-lease.ts";
 
 /** Sets a Deployment's replica count. */
 export type Scale = (replicas: number) => Promise<void>;
@@ -10,7 +10,7 @@ const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
 /**
  * `Scale` against the in-cluster API with the pod's service-account token
- * (needs `patch` on `deployments/scale` for that one Deployment). Plain
+ * (needs `patch` on `deployments/scale` for that Deployment). Plain
  * `node:https`, because global fetch can't take the cluster CA.
  */
 export function inClusterScale(deployment: string, namespace?: string): Scale {
@@ -59,6 +59,8 @@ export function inClusterScale(deployment: string, namespace?: string): Scale {
 }
 
 export interface ScaledWorkerOptions {
+  /** The Deployment's name, for logs and errors. */
+  name: string;
   scale: Scale;
   /** The worker's health URL; ready when it answers 2xx with
    *  `model_loaded` not false. */
@@ -73,6 +75,9 @@ export interface ScaledWorkerOptions {
   pollMs?: number;
   fetchImpl?: typeof fetch;
   log?: (msg: string) => void;
+  /** The error `acquire` throws when the worker can't be started.
+   *  Default: `AnalyzerUnavailableError`. */
+  unavailable?: (message: string) => Error;
 }
 
 /**
@@ -83,9 +88,7 @@ export interface ScaledWorkerOptions {
  * manifest apply, a restart of this process) left it running.
  */
 export class ScaledWorker implements WorkerLease {
-  readonly #o: Required<Omit<ScaledWorkerOptions, "log">> & {
-    log: (msg: string) => void;
-  };
+  readonly #o: Required<ScaledWorkerOptions>;
   #ready = false;
   #starting: Promise<void> | null = null;
   #holders = 0;
@@ -99,6 +102,7 @@ export class ScaledWorker implements WorkerLease {
       pollMs: 3000,
       fetchImpl: globalThis.fetch,
       log: (m) => console.log(m),
+      unavailable: (m) => new AnalyzerUnavailableError(m),
       ...opts,
     };
     this.#lastUsed = Date.now();
@@ -116,7 +120,7 @@ export class ScaledWorker implements WorkerLease {
     try {
       if (this.#ready) return;
       if (Date.now() < this.#blockedUntil) {
-        throw new AnalyzerUnavailableError("pass-the-beat: last start failed, backing off");
+        throw this.#o.unavailable(`${this.#o.name}: last start failed, backing off`);
       }
       this.#starting ??= this.#start().finally(() => {
         this.#starting = null;
@@ -138,6 +142,16 @@ export class ScaledWorker implements WorkerLease {
     this.#ready = false;
   }
 
+  /** Starts the worker in the background without holding it, so it is
+   *  likely up by the time it is needed. Counts as use for the idle
+   *  timer; a failed start only lands in the log. */
+  warm(): void {
+    this.acquire().then(
+      () => this.release(),
+      () => {},
+    );
+  }
+
   /** Stops the periodic check (tests, shutdown). */
   close(): void {
     clearInterval(this.#sweep);
@@ -148,7 +162,7 @@ export class ScaledWorker implements WorkerLease {
     const started = Date.now();
     try {
       if (!(await this.#healthy())) {
-        this.#o.log("pass-the-beat: scaling up");
+        this.#o.log(`${this.#o.name}: scaling up`);
         await this.#o.scale(1);
         while (!(await this.#healthy())) {
           if (Date.now() - started > this.#o.readyTimeoutMs) {
@@ -156,14 +170,14 @@ export class ScaledWorker implements WorkerLease {
           }
           await new Promise((r) => setTimeout(r, this.#o.pollMs));
         }
-        this.#o.log(`pass-the-beat: ready after ${Math.round((Date.now() - started) / 1000)} s`);
+        this.#o.log(`${this.#o.name}: ready after ${Math.round((Date.now() - started) / 1000)} s`);
       }
       this.#ready = true;
     } catch (e) {
       this.#blockedUntil = Date.now() + this.#o.backoffMs;
-      this.#o.log(`pass-the-beat: start failed (${(e as Error).message}), scaling back down`);
+      this.#o.log(`${this.#o.name}: start failed (${(e as Error).message}), scaling back down`);
       await this.#o.scale(0).catch(() => {});
-      throw new AnalyzerUnavailableError(`pass-the-beat did not start: ${(e as Error).message}`);
+      throw this.#o.unavailable(`${this.#o.name} did not start: ${(e as Error).message}`);
     }
   }
 
@@ -196,9 +210,9 @@ export class ScaledWorker implements WorkerLease {
     this.#ready = false;
     try {
       await this.#o.scale(0); // idempotent; also catches strays
-      if (wasReady) this.#o.log("pass-the-beat: idle, scaled to zero");
+      if (wasReady) this.#o.log(`${this.#o.name}: idle, scaled to zero`);
     } catch (e) {
-      this.#o.log(`pass-the-beat: scale-down failed: ${(e as Error).message}`);
+      this.#o.log(`${this.#o.name}: scale-down failed: ${(e as Error).message}`);
     }
   }
 }

@@ -33,6 +33,8 @@ async function startServer(): Promise<{ base: string; close: () => Promise<void>
     beatAnalyzer: "local",
     passTheBeatUrl: "http://pass-the-beat:8000",
     passTheBeatScaling: null,
+    spotifyApiUrl: "http://spotify-api:8000",
+    spotifyApiScaling: null,
     s3: null,
   };
   const server = createApp(config);
