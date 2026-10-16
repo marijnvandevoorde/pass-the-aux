@@ -13,21 +13,27 @@ import type {
 } from "../../src/domain/ports/analysis-repository.ts";
 import type { BeatGridRepository } from "../../src/domain/ports/beat-grid-repository.ts";
 import type {
+  AnalyzedBeats,
   AudioAnalyzer,
   AudioFeatures,
 } from "../../src/domain/ports/audio-analyzer.ts";
+import { AnalyzerUnavailableError } from "../../src/domain/errors.ts";
+import { GetBeatGrid } from "../../src/application/get-beat-grid.ts";
 
-function fakeAnalyses(rows: string[]): AnalysisRepository {
+function fakeAnalyses(rows: string[]): AnalysisRepository & {
+  map: Record<string, AnalysisRecord>;
+} {
   const map: Record<string, AnalysisRecord> = {};
   for (const id of rows) {
-    map[id] = { bpm: 120, size: 1, mtime: 1, analyzedAt: 1 };
+    map[id] = { bpm: 120, size: 1, mtime: 1, analyzedAt: 1, key: "Am" };
   }
   return {
+    map,
     async all() {
-      return map;
+      return { ...map };
     },
-    async put() {
-      /* not used here */
+    async put(_uid, id, record) {
+      map[id] = { ...record, analyzedAt: 2 };
     },
     async page(_uid: string, _q: LibraryQuery): Promise<LibraryPage> {
       return { items: [], total: 0 };
@@ -57,7 +63,7 @@ function fakeGrids(): BeatGridRepository & {
 }
 
 function fakeAnalyzer(
-  beats: (id: string) => Omit<BeatGrid, "analyzedAt"> | null,
+  beats: (id: string) => AnalyzedBeats | null,
 ): AudioAnalyzer {
   return {
     beatAnalyzerVersion: BEAT_GRID_ANALYZER_VERSION,
@@ -88,7 +94,7 @@ test("builds grids for every track that lacks one", async () => {
   const analyzer = fakeAnalyzer((id) => dummyGrid(id));
   const uc = new BuildBeatGrids(analyses, grids, analyzer, "u1");
   const r = await uc.execute();
-  assert.deepEqual(r, { scanned: 3, built: 3 });
+  assert.deepEqual(r, { scanned: 3, built: 3, unavailable: false });
   assert.equal(grids.store.size, 3);
 });
 
@@ -148,4 +154,51 @@ test("a thrown analyzeBeats does not abort the run", async () => {
   assert.equal(await grids.has("u1", "a.mp3"), true);
   assert.equal(await grids.has("u1", "b.mp3"), false);
   assert.equal(await grids.has("u1", "c.mp3"), true);
+});
+
+test("the analyzer's BPM replaces the provisional library BPM", async () => {
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3"]);
+  const grids = fakeGrids();
+  const analyzer = fakeAnalyzer((id) => ({
+    ...dummyGrid(id),
+    bpm: id === "a.mp3" ? 127.96 : null,
+  }));
+  await new BuildBeatGrids(analyses, grids, analyzer, "u1").execute();
+  assert.equal(analyses.map["a.mp3"]!.bpm, 128);
+  assert.equal(analyses.map["a.mp3"]!.key, "Am"); // the rest untouched
+  assert.equal(analyses.map["b.mp3"]!.bpm, 120); // no BPM reported → kept
+  // the stored grid carries no bpm field
+  assert.equal("bpm" in (grids.store.get("u1::a.mp3") as object), false);
+});
+
+test("an unavailable analyzer ends the run and stores nothing for the rest", async () => {
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3", "c.mp3"]);
+  const grids = fakeGrids();
+  let calls = 0;
+  const analyzer = fakeAnalyzer((id) => {
+    calls++;
+    if (id === "b.mp3") throw new AnalyzerUnavailableError();
+    return dummyGrid(id);
+  });
+  const r = await new BuildBeatGrids(analyses, grids, analyzer, "u1").execute();
+  assert.deepEqual(r, { scanned: 3, built: 1, unavailable: true });
+  assert.equal(calls, 2); // c.mp3 never tried
+  assert.equal(await grids.has("u1", "b.mp3"), false);
+  assert.equal(analyses.map["b.mp3"]!.bpm, 120);
+});
+
+test("an empty grid is stored (not retried) but served as 'no grid'", async () => {
+  const analyses = fakeAnalyses(["a.mp3"]);
+  const grids = fakeGrids();
+  let calls = 0;
+  const analyzer = fakeAnalyzer((id) => {
+    calls++;
+    return { ...dummyGrid(id), beats: new Float32Array(0), bpm: null };
+  });
+  const uc = new BuildBeatGrids(analyses, grids, analyzer, "u1");
+  await uc.execute();
+  await uc.execute();
+  assert.equal(calls, 1);
+  assert.equal(await grids.has("u1", "a.mp3"), true);
+  assert.equal(await new GetBeatGrid(grids, "u1").execute("a.mp3"), null);
 });

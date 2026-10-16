@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BeatThisAnalyzer } from "../../src/infrastructure/beat-this-analyzer.ts";
+import { Readable } from "node:stream";
+import type { WorkerLease } from "../../src/infrastructure/beat-this-analyzer.ts";
 import { BEATTHIS_ANALYZER_VERSION } from "../../src/domain/beat-grid.ts";
+import {
+  AnalyzerUnavailableError,
+  TrackNotFoundError,
+} from "../../src/domain/errors.ts";
+import type { AudioSource } from "../../src/domain/ports/audio-source.ts";
 import type {
   AudioAnalyzer,
   AudioFeatures,
@@ -55,21 +62,58 @@ const SAMPLE = {
   firstSolidBeat: 4,
 };
 
+const AUDIO = Buffer.from("fake audio bytes");
+
+/** One-track library: `song.mp3` and `s.mp3` exist, anything else 404s. */
+const fakeAudio: AudioSource = {
+  async stat(id) {
+    if (id !== "song.mp3" && id !== "s.mp3") throw new TrackNotFoundError(id);
+    return { id, size: AUDIO.length, contentType: "audio/mpeg" };
+  },
+  createStream() {
+    return Readable.from([AUDIO]);
+  },
+};
+
+function fakeWorker(over: Partial<WorkerLease> = {}): WorkerLease & {
+  log: string[];
+} {
+  const log: string[] = [];
+  return {
+    log,
+    acquire: async () => {
+      log.push("acquire");
+    },
+    release: () => {
+      log.push("release");
+    },
+    lost: () => {
+      log.push("lost");
+    },
+    ...over,
+  };
+}
+
 function analyzer(
   fetchImpl: typeof fetch,
-  musicSubdir = "",
+  worker: WorkerLease = fakeWorker(),
 ): BeatThisAnalyzer {
   return new BeatThisAnalyzer({
-    baseUrl: "http://pass-the-beat:8000",
-    musicSubdir,
+    baseUrl: "http://pass-the-beat:8000/",
+    audio: fakeAudio,
     fallback: fakeFallback(),
+    worker,
     fetchImpl,
   });
 }
 
-test("analyzeBeats maps a sidecar response onto a BeatGrid", async () => {
+async function bodyBytes(init: RequestInit | undefined): Promise<Buffer> {
+  return Buffer.from(await new Response(init!.body as ReadableStream).arrayBuffer());
+}
+
+test("analyzeBeats uploads the audio and maps the reply onto a grid + BPM", async () => {
   const { fetchImpl, calls } = stub(() => okResponse(SAMPLE));
-  const grid = await analyzer(fetchImpl, "u1").analyzeBeats("song.mp3");
+  const grid = await analyzer(fetchImpl).analyzeBeats("song.mp3");
 
   assert.ok(grid);
   assert.equal(grid.trackId, "song.mp3");
@@ -79,10 +123,12 @@ test("analyzeBeats maps a sidecar response onto a BeatGrid", async () => {
   assert.equal(grid.firstSolidBeatIndex, 4);
   assert.equal(grid.confidence, 0.82);
   assert.equal(grid.analyzerVersion, BEATTHIS_ANALYZER_VERSION);
+  assert.equal(grid.bpm, 120);
 
-  // The worker path is prefixed with the user's music subdir.
-  const body = JSON.parse(String(calls[0]!.init!.body)) as { path: string };
-  assert.equal(body.path, "u1/song.mp3");
+  assert.equal(calls[0]!.url, "http://pass-the-beat:8000/analyze-audio");
+  const headers = calls[0]!.init!.headers as Record<string, string>;
+  assert.equal(headers["Content-Length"], String(AUDIO.length));
+  assert.deepEqual(await bodyBytes(calls[0]!.init), AUDIO);
 });
 
 test("downbeatPhase is the first downbeat index mod 4", async () => {
@@ -93,52 +139,90 @@ test("downbeatPhase is the first downbeat index mod 4", async () => {
   assert.equal(grid?.downbeatPhase, 2); // 6 % 4
 });
 
-test("analyzeBeats returns null when the sidecar is unreachable", async () => {
+test("unreachable sidecar → AnalyzerUnavailableError, never a lesser grid", async () => {
+  const worker = fakeWorker();
   const fetchImpl: typeof fetch = async () => {
     throw new Error("ECONNREFUSED");
   };
-  assert.equal(await analyzer(fetchImpl).analyzeBeats("s.mp3"), null);
-});
-
-test("analyzeBeats returns null on a non-OK response", async () => {
-  const { fetchImpl } = stub(() => new Response("nope", { status: 500 }));
-  assert.equal(await analyzer(fetchImpl).analyzeBeats("s.mp3"), null);
-});
-
-test("analyzeBeats returns null when the grid has no beats", async () => {
-  const { fetchImpl } = stub(() =>
-    okResponse({ ...SAMPLE, beats: [], downbeatIndices: [] }),
+  await assert.rejects(
+    analyzer(fetchImpl, worker).analyzeBeats("s.mp3"),
+    AnalyzerUnavailableError,
   );
-  assert.equal(await analyzer(fetchImpl).analyzeBeats("s.mp3"), null);
+  assert.deepEqual(worker.log, ["acquire", "lost", "release"]);
 });
 
-test("analyze uses sidecar BPM, delegates key/mode/energy to the fallback", async () => {
-  const { fetchImpl } = stub(() => okResponse(SAMPLE));
-  const f = await analyzer(fetchImpl).analyze("s.mp3");
-  assert.deepEqual(f, {
-    bpm: 120, // from beat-this
-    key: "C", // the rest from the local fallback
-    mode: "major",
-    camelot: "8B",
-    energy: 0.5,
+test("503 (model loading) → AnalyzerUnavailableError", async () => {
+  const { fetchImpl } = stub(() => new Response("loading", { status: 503 }));
+  await assert.rejects(
+    analyzer(fetchImpl).analyzeBeats("s.mp3"),
+    AnalyzerUnavailableError,
+  );
+});
+
+for (const status of [422, 500]) {
+  test(`${status} (the file itself) → an empty grid, stored as final`, async () => {
+    const { fetchImpl } = stub(() => new Response("bad", { status }));
+    const grid = await analyzer(fetchImpl).analyzeBeats("s.mp3");
+    assert.ok(grid);
+    assert.equal(grid.beats.length, 0);
+    assert.equal(grid.analyzerVersion, BEATTHIS_ANALYZER_VERSION);
+    assert.equal(grid.bpm, null);
   });
+}
+
+test("no beats → an empty grid that keeps the duration", async () => {
+  const { fetchImpl } = stub(() =>
+    okResponse({ ...SAMPLE, beats: [], downbeatIndices: [], bpm: null }),
+  );
+  const grid = await analyzer(fetchImpl).analyzeBeats("s.mp3");
+  assert.equal(grid?.beats.length, 0);
+  assert.equal(grid?.durationSec, 200);
 });
 
-test("analyze falls back to local features when the sidecar is down", async () => {
-  const fetchImpl: typeof fetch = async () => {
-    throw new Error("ECONNREFUSED");
-  };
+test("a garbage reply is the sidecar's fault → unavailable", async () => {
+  const { fetchImpl } = stub(() => okResponse({ nope: true }));
+  await assert.rejects(
+    analyzer(fetchImpl).analyzeBeats("s.mp3"),
+    AnalyzerUnavailableError,
+  );
+});
+
+test("a missing track returns null without starting the sidecar", async () => {
+  const worker = fakeWorker();
+  const { fetchImpl, calls } = stub(() => okResponse(SAMPLE));
+  assert.equal(await analyzer(fetchImpl, worker).analyzeBeats("gone.mp3"), null);
+  assert.equal(calls.length, 0);
+  assert.deepEqual(worker.log, []);
+});
+
+test("a worker that can't start propagates and sends nothing", async () => {
+  const { fetchImpl, calls } = stub(() => okResponse(SAMPLE));
+  const worker = fakeWorker({
+    acquire: async () => {
+      throw new AnalyzerUnavailableError("no room");
+    },
+  });
+  await assert.rejects(
+    analyzer(fetchImpl, worker).analyzeBeats("s.mp3"),
+    AnalyzerUnavailableError,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("acquire and release are paired around each upload", async () => {
+  const worker = fakeWorker();
+  const { fetchImpl } = stub(() => okResponse(SAMPLE));
+  await analyzer(fetchImpl, worker).analyzeBeats("s.mp3");
+  assert.deepEqual(worker.log, ["acquire", "release"]);
+});
+
+test("analyze is local only — the sidecar is not needed to enrich a track", async () => {
+  const { fetchImpl, calls } = stub(() => okResponse(SAMPLE));
   assert.deepEqual(await analyzer(fetchImpl).analyze("s.mp3"), FALLBACK_FEATURES);
+  assert.equal(calls.length, 0);
 });
 
 test("beatAnalyzerVersion reports the beat-this version", () => {
   const a = analyzer(async () => new Response("{}"));
   assert.equal(a.beatAnalyzerVersion, BEATTHIS_ANALYZER_VERSION);
-});
-
-test("no music subdir → the worker path has no prefix", async () => {
-  const { fetchImpl, calls } = stub(() => okResponse(SAMPLE));
-  await analyzer(fetchImpl).analyzeBeats("song.mp3");
-  const body = JSON.parse(String(calls[0]!.init!.body)) as { path: string };
-  assert.equal(body.path, "song.mp3");
 });

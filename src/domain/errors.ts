@@ -9,7 +9,8 @@ export type ErrorCode =
   | "REMOTE_FAILED"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
-  | "PLAN_REQUIRED";
+  | "PLAN_REQUIRED"
+  | "ANALYZER_UNAVAILABLE";
 
 /** Base class for expected, domain-level failures (mapped to HTTP status by the interface layer). */
 export class DomainError extends Error {
@@ -93,5 +94,14 @@ export class PlanRequiredError extends DomainError {
     message = "your plan does not include remote record stores",
   ) {
     super(message, "PLAN_REQUIRED");
+  }
+}
+
+/** The audio analysis engine can't be reached right now (not started,
+ *  still loading, gone). Nothing is wrong with the track: a later run
+ *  retries it. */
+export class AnalyzerUnavailableError extends DomainError {
+  constructor(message = "audio analyzer unavailable") {
+    super(message, "ANALYZER_UNAVAILABLE");
   }
 }

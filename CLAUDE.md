@@ -19,6 +19,11 @@ and reached only when `STORAGE_DRIVER=mysql`. The default `sqlite` driver
 uses the built-in `node:sqlite` and stays dependency-free. Adding any
 further runtime dep needs explicit approval.
 
+**Sanctioned runtime dependency:** `aws4fetch` — a small, dependency-free
+SigV4 signer, used only by `src/infrastructure/s3-bucket.ts` when the
+library lives in a bucket (`S3_BUCKET`). Chosen over the AWS SDK (~100
+packages for five calls) and over a hand-rolled signer.
+
 **Sanctioned system tool:** `ffmpeg` — a *system binary*, not an npm dep.
 Used only by `src/infrastructure/ffmpeg-audio-analyzer.ts` to decode audio
 → PCM for server-side BPM/key/energy analysis (the DSP itself reuses the
@@ -62,6 +67,28 @@ When adding a feature: define/extend a port in `domain/ports/`, implement
 the use case in `application/`, add the adapter in `infrastructure/`, wire
 it in `main.ts`. Don't let HTTP or `fs` types leak into domain/application.
 
+## Where the library lives
+
+`MUSIC_DIR` on disk (default), or an S3-compatible bucket when `S3_BUCKET`
+is set (production: OCI Object Storage). Both use the same layout,
+`<uid>/<file>` with a `<base>.jpg` cover next to each track, and every
+`Fs*` adapter has an `S3*` twin in `src/infrastructure/s3-library.ts`;
+`main.ts` picks one set. A bucket can't be watched, so imports announce
+themselves through `LibraryChangeNotifier`, and the 5-minute sweep is
+the backstop. ffmpeg works on short-lived temp copies (`LocalFiles`).
+
+## Beat grids and pass-the-beat
+
+With `BEAT_ANALYZER=pass-the-beat`, `AnalyzeLibrary` stays local (key,
+energy and a provisional BPM) and only `BuildBeatGrids` talks to the
+sidecar, uploading each track. The grid's BPM then replaces the
+provisional one. If the sidecar is unavailable, `analyzeBeats` throws
+`AnalyzerUnavailableError` and the run stops without storing anything,
+so no track is ever marked done with a fallback result. An empty grid
+means "analysed, no pulse" (stored so it isn't retried; the API serves
+it as 404). With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
+scales the sidecar up for a batch and back to zero when idle.
+
 ## Companion projects (external repos)
 
 Two optional companion services used to live here as submodules; they're
@@ -101,8 +128,9 @@ The repository enforces exactly-one-active per user.
   `noFallthroughCasesInSwitch`, `erasableSyntaxOnly`, `isolatedModules`.
   No enums / namespaces / parameter properties (type-stripping only erases
   types — `erasableSyntaxOnly` enforces this).
-- **Near-zero runtime dependencies.** The only runtime dep is `mysql2` —
-  used solely by the MySQL Storage adapters. Everything else:
+- **Near-zero runtime dependencies.** The runtime deps are `mysql2` —
+  used solely by the MySQL Storage adapters — and `aws4fetch`, used
+  solely by the S3 bucket client. Everything else:
   `devDependencies` are tooling only (TypeScript, `@types/node`). Do not
   add another runtime dep without explicit approval — reach for the Node
   stdlib first (`node:sqlite`, `node:crypto`, `node:http`).

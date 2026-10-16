@@ -36,8 +36,10 @@ export const BEAT_GRID_ANALYZER_VERSION = 1;
 /** Version stamp for grids produced by the pass-the-beat sidecar. Kept
  *  distinct from {@link BEAT_GRID_ANALYZER_VERSION} so `BuildBeatGrids`
  *  re-grids the library when the `BEAT_ANALYZER` toggle switches engines
- *  (each analyzer reports its own version via `beatAnalyzerVersion`). */
-export const BEATTHIS_ANALYZER_VERSION = 2;
+ *  (each analyzer reports its own version via `beatAnalyzerVersion`).
+ *  3: the library BPM is taken from the same run as the grid, so every
+ *  track is re-gridded once to replace BPMs that came from a fallback. */
+export const BEATTHIS_ANALYZER_VERSION = 3;
 
 /** Resolve the first "solid" cuepoint in seconds, or `null` when the
  *  grid has no solid run. Centralised so both browser and server agree. */

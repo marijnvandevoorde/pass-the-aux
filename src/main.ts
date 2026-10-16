@@ -44,6 +44,22 @@ import type { BeatGridRepository } from "./domain/ports/beat-grid-repository.ts"
 import { RemoteCoverArtSource } from "./infrastructure/remote-cover-art-source.ts";
 import { FsCoverStore } from "./infrastructure/fs-cover-store.ts";
 import { AcousticBrainzSource } from "./infrastructure/acousticbrainz-source.ts";
+import { S3Bucket } from "./infrastructure/s3-bucket.ts";
+import {
+  S3AudioSource,
+  S3CoverStore,
+  S3LibraryWriter,
+  S3TrackRepository,
+  s3LocalFiles,
+  s3PrefixReader,
+} from "./infrastructure/s3-library.ts";
+import { LibraryChangeNotifier } from "./infrastructure/library-change-notifier.ts";
+import { ALWAYS_UP, type WorkerLease } from "./infrastructure/beat-this-analyzer.ts";
+import { ScaledWorker, inClusterScale } from "./infrastructure/k8s-worker-lease.ts";
+import type { AudioSource } from "./domain/ports/audio-source.ts";
+import type { TrackRepository } from "./domain/ports/track-repository.ts";
+import type { CoverStore } from "./domain/ports/cover-art.ts";
+import type { LibraryWriter } from "./domain/ports/library-writer.ts";
 import { buildServer, type UseCases } from "./interface/http/build-server.ts";
 import { lanAddresses } from "./interface/http/lan.ts";
 import path from "node:path";
@@ -80,7 +96,28 @@ export function createApp(
     remoteLibs = new SqliteRemoteLibrariesRepository(db);
   }
   const auth = new AuthService(users, config.sessionSecret);
-  const watcher = new FsLibraryWatcher(config.musicDir);
+  // Where the audio lives: a bucket (S3_BUCKET set) or MUSIC_DIR. A
+  // bucket can't be watched, so imports announce themselves instead.
+  const bucket = config.s3 ? new S3Bucket(config.s3) : null;
+  const notifier = new LibraryChangeNotifier();
+  const watcher = bucket ? notifier : new FsLibraryWatcher(config.musicDir);
+  // pass-the-beat on demand (Kubernetes) or always on (compose). Only
+  // the real server scales anything; tests never touch a cluster.
+  const beatWorker: WorkerLease =
+    opts.backgroundWatch &&
+    config.beatAnalyzer === "pass-the-beat" &&
+    config.passTheBeatScaling
+      ? new ScaledWorker({
+          scale: inClusterScale(
+            config.passTheBeatScaling.deployment,
+            config.passTheBeatScaling.namespace,
+          ),
+          healthUrl: `${config.passTheBeatUrl}/healthz`,
+          idleMs: config.passTheBeatScaling.idleMs,
+          readyTimeoutMs: config.passTheBeatScaling.readyTimeoutMs,
+          backoffMs: config.passTheBeatScaling.backoffMs,
+        })
+      : ALWAYS_UP;
   const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs, users);
 
   /** Per-user resolver: looks up the active remote-library row and
@@ -104,9 +141,25 @@ export function createApp(
     const hit = cache.get(uid);
     if (hit) return hit;
     const dir = uid ? path.join(config.musicDir, uid) : config.musicDir;
-    const fsTracks = new FsTrackRepository(dir);
-    const fsTags = new Id3TagReader(dir);
-    const coverStore = new FsCoverStore(dir);
+    const prefix = uid ? `${uid}/` : "";
+    const fsTracks: TrackRepository = bucket
+      ? new S3TrackRepository(bucket, prefix)
+      : new FsTrackRepository(dir);
+    const fsTags = new Id3TagReader(
+      bucket ? s3PrefixReader(bucket, prefix) : dir,
+    );
+    const coverStore: CoverStore = bucket
+      ? new S3CoverStore(bucket, prefix)
+      : new FsCoverStore(dir);
+    const audio: AudioSource = bucket
+      ? new S3AudioSource(bucket, prefix)
+      : new FsAudioSource(dir);
+    const writer: LibraryWriter = bucket
+      ? new S3LibraryWriter(bucket, prefix, () => notifier.emit())
+      : new FsLibraryWriter(dir);
+    const local = new FfmpegAudioAnalyzer(
+      bucket ? s3LocalFiles(bucket, prefix) : dir,
+    );
     // The analysis engine that enriches `analysis` + builds
     // beat grids. `local` is the in-house ffmpeg + Ellis-DP DSP;
     // `pass-the-beat` routes through the sidecar (and wraps the local
@@ -116,10 +169,11 @@ export function createApp(
       config.beatAnalyzer === "pass-the-beat"
         ? new BeatThisAnalyzer({
             baseUrl: config.passTheBeatUrl,
-            musicSubdir: uid,
-            fallback: new FfmpegAudioAnalyzer(dir),
+            audio,
+            fallback: local,
+            worker: beatWorker,
           })
-        : new FfmpegAudioAnalyzer(dir);
+        : local;
     const resolveSource = () => resolveActiveRemote(uid);
     const uc: UseCases = {
       listLibrary: new ListLibrary(analyses, uid),
@@ -131,14 +185,11 @@ export function createApp(
         coverSource,
         coverStore,
       ),
-      streamAudio: new StreamAudio(new FsAudioSource(dir)),
+      streamAudio: new StreamAudio(audio),
       manageCrates: new ManageCrates(crates, uid),
       getCover: new GetCover(fsTags, coverStore),
       searchRemote: new SearchRemote(resolveSource),
-      importRemoteTrack: new ImportRemoteTrack(
-        resolveSource,
-        new FsLibraryWriter(dir),
-      ),
+      importRemoteTrack: new ImportRemoteTrack(resolveSource, writer),
       manageRemoteLibraries,
       enrichLibrary: new EnrichLibrary(
         fsTracks,
@@ -237,7 +288,11 @@ export function start(): void {
         "        the music folder). Use a trusted LAN, or set HOST=127.0.0.1.",
       );
     }
-    console.log(`Music folder: ${config.musicDir}`);
+    console.log(
+      config.s3
+        ? `Music library: bucket ${config.s3.bucket}`
+        : `Music folder: ${config.musicDir}`,
+    );
     console.log(`Storage: ${config.storageDriver}`);
     console.log(
       config.sessionSecret.length >= 16
@@ -247,7 +302,7 @@ export function start(): void {
     console.log(
       "Remote library: add one in Settings → Remote record stores",
     );
-    if (!fs.existsSync(config.musicDir)) {
+    if (!config.s3 && !fs.existsSync(config.musicDir)) {
       console.log("(folder does not exist yet — create it or set MUSIC_DIR)");
     }
   });

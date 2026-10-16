@@ -42,23 +42,45 @@ function decode(abs: string): Promise<Float32Array> {
   });
 }
 
+/** Gives ffmpeg a local path for a track for the duration of `fn`
+ *  (the file itself on disk; a temp copy for remote storage). Null when
+ *  the track can't be reached. */
+export interface LocalFiles {
+  withFile<T>(id: string, fn: (abs: string) => Promise<T>): Promise<T | null>;
+}
+
+/** `LocalFiles` over a music directory on disk. */
+export function fsLocalFiles(musicDir: string): LocalFiles {
+  return {
+    async withFile<T>(id: string, fn: (abs: string) => Promise<T>) {
+      const abs = safeResolve(musicDir, id);
+      return abs === null ? null : fn(abs);
+    },
+  };
+}
+
 export class FfmpegAudioAnalyzer implements AudioAnalyzer {
   readonly beatAnalyzerVersion = BEAT_GRID_ANALYZER_VERSION;
-  readonly #musicDir: string;
+  readonly #files: LocalFiles;
 
-  constructor(musicDir: string) {
-    this.#musicDir = musicDir;
+  /** A music directory on disk, or any other `LocalFiles`. */
+  constructor(source: string | LocalFiles) {
+    this.#files = typeof source === "string" ? fsLocalFiles(source) : source;
+  }
+
+  /** Mono PCM of the track, or null when unreadable / not audio /
+   *  ffmpeg absent. */
+  async #pcm(trackId: string): Promise<Float32Array | null> {
+    try {
+      return await this.#files.withFile(trackId, decode);
+    } catch {
+      return null;
+    }
   }
 
   async analyze(trackId: string): Promise<AudioFeatures | null> {
-    const abs = safeResolve(this.#musicDir, trackId);
-    if (abs === null) return null;
-    let pcm: Float32Array;
-    try {
-      pcm = await decode(abs);
-    } catch {
-      return null; // unreadable / not audio / ffmpeg absent
-    }
+    const pcm = await this.#pcm(trackId);
+    if (pcm === null) return null;
     if (pcm.length < SR) return null; // < 1 s — nothing reliable
     const k = estimateKey(pcm, SR);
     return {
@@ -73,14 +95,8 @@ export class FfmpegAudioAnalyzer implements AudioAnalyzer {
   async analyzeBeats(
     trackId: string,
   ): Promise<Omit<BeatGrid, "analyzedAt"> | null> {
-    const abs = safeResolve(this.#musicDir, trackId);
-    if (abs === null) return null;
-    let pcm: Float32Array;
-    try {
-      pcm = await decode(abs);
-    } catch {
-      return null;
-    }
+    const pcm = await this.#pcm(trackId);
+    if (pcm === null) return null;
     if (pcm.length < SR) return null;
     const bpm = estimateTempo(pcm, SR);
     if (bpm === null) return null;

@@ -26,6 +26,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "aws4fetch": "1.0.20",
     "mysql2": "^3.24.5"
   }
 }

@@ -14,6 +14,8 @@ export class GetBeatGrid {
 
   async execute(trackId: unknown): Promise<BeatGrid | null> {
     if (typeof trackId !== "string" || trackId.trim() === "") return null;
-    return this.#grids.get(this.#userId, trackId);
+    const grid = await this.#grids.get(this.#userId, trackId);
+    // An empty grid only records "analysed, no pulse" for the backfill.
+    return grid && grid.beats.length > 0 ? grid : null;
   }
 }

@@ -29,15 +29,14 @@ function detectFormat(id: string): Format {
   }
 }
 
-export class Id3TagReader implements TagReader {
-  readonly #musicDir: string;
+/** The first `cap` bytes of a track (fewer if the file is shorter), or
+ *  null when it can't be read. Lets the parsers run over any storage. */
+export type PrefixReader = (id: string, cap: number) => Promise<Uint8Array | null>;
 
-  constructor(musicDir: string) {
-    this.#musicDir = musicDir;
-  }
-
-  async #read(id: string, cap: number): Promise<Uint8Array | null> {
-    const abs = safeResolve(this.#musicDir, id);
+/** `PrefixReader` over a music directory on disk. */
+export function fsPrefixReader(musicDir: string): PrefixReader {
+  return async (id, cap) => {
+    const abs = safeResolve(musicDir, id);
     if (abs === null) return null;
     let fh: fsp.FileHandle | undefined;
     try {
@@ -52,6 +51,15 @@ export class Id3TagReader implements TagReader {
     } finally {
       await fh?.close();
     }
+  };
+}
+
+export class Id3TagReader implements TagReader {
+  readonly #read: PrefixReader;
+
+  /** A music directory on disk, or any other `PrefixReader`. */
+  constructor(source: string | PrefixReader) {
+    this.#read = typeof source === "string" ? fsPrefixReader(source) : source;
   }
 
   async read(id: string): Promise<TrackTags | null> {

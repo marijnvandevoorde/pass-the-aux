@@ -26,6 +26,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   UNAUTHORIZED: 401,
   PLAN_REQUIRED: 403,
+  ANALYZER_UNAVAILABLE: 503,
 };
 
 export function statusForError(err: unknown): number {
