@@ -1,3 +1,4 @@
+import { pipeline } from "node:stream/promises";
 import http from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import path from "node:path";
@@ -665,7 +666,9 @@ export function buildServer(
           "Content-Length": range.end - range.start + 1,
           "Cache-Control": "no-cache",
         });
-        ctx.uc.streamAudio.open(stat.id, range).pipe(res);
+        // pipeline (not .pipe) so a storage error mid-stream closes the
+        // response instead of leaving the client hanging.
+        pipeline(ctx.uc.streamAudio.open(stat.id, range), res).catch(() => {});
         return;
       }
       res.writeHead(200, {
@@ -674,7 +677,7 @@ export function buildServer(
         "Accept-Ranges": "bytes",
         "Cache-Control": "no-cache",
       });
-      ctx.uc.streamAudio.open(stat.id, null).pipe(res);
+      pipeline(ctx.uc.streamAudio.open(stat.id, null), res).catch(() => {});
     },
   };
 

@@ -63,3 +63,44 @@ test("db config has sane defaults and reads DB_* env", () => {
   });
   assert.equal(c.sessionSecret, "s3cret");
 });
+
+test("library is on disk unless S3_BUCKET is set; then the rest is required", () => {
+  assert.equal(loadConfig({} as NodeJS.ProcessEnv).s3, null);
+  const s3 = loadConfig({
+    S3_BUCKET: "music",
+    S3_ENDPOINT: "https://s3.example.test",
+    S3_REGION: "eu-amsterdam-1",
+    S3_ACCESS_KEY_ID: "AK",
+    S3_SECRET_ACCESS_KEY: "SK",
+    S3_FORCE_PATH_STYLE: "true",
+  } as NodeJS.ProcessEnv).s3;
+  assert.deepEqual(s3, {
+    bucket: "music",
+    endpoint: "https://s3.example.test",
+    region: "eu-amsterdam-1",
+    accessKeyId: "AK",
+    secretAccessKey: "SK",
+    forcePathStyle: true,
+  });
+  assert.throws(
+    () => loadConfig({ S3_BUCKET: "music" } as NodeJS.ProcessEnv),
+    /S3_ENDPOINT/,
+  );
+});
+
+test("pass-the-beat scaling is off unless a Deployment is named", () => {
+  assert.equal(loadConfig({} as NodeJS.ProcessEnv).passTheBeatScaling, null);
+  assert.deepEqual(
+    loadConfig({
+      PASS_THE_BEAT_K8S_DEPLOYMENT: "pass-the-beat",
+      PASS_THE_BEAT_IDLE_SECONDS: "60",
+    } as NodeJS.ProcessEnv).passTheBeatScaling,
+    {
+      deployment: "pass-the-beat",
+      namespace: "",
+      idleMs: 60_000,
+      readyTimeoutMs: 900_000,
+      backoffMs: 1_800_000,
+    },
+  );
+});

@@ -13,7 +13,7 @@ import type { LibraryWriter } from "../domain/ports/library-writer.ts";
 // and parens are kept so "Artist - Title.flac" survives intact.
 const ILLEGAL = /[\\/?%*:|"<>\x00-\x1f]/g;
 
-function sanitiseBase(raw: string): string {
+export function sanitiseBase(raw: string): string {
   const cleaned = raw
     .replace(ILLEGAL, "_")
     .replace(/\s+/g, " ")

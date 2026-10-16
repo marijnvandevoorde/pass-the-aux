@@ -192,7 +192,7 @@ SESSION_SECRET=...         # signs session cookies + encrypts TOTP (≥16 chars)
 REMOTE_SECRET=...          # Bearer secret clients send to pass-the-remote
 
 # Host folders:
-MUSIC_DIR=/path/to/music         # the mixer's local library (shared with pass-the-beat)
+MUSIC_DIR=/path/to/music         # the mixer's local library
 RECORDSTORE_DIR=/path/to/catalog # pass-the-remote's separate, served catalog
 # REMOTE_PORT=3000               # host port pass-the-remote is exposed on
 ```
@@ -264,8 +264,6 @@ services:
     environment:
       - BEATTHIS_CHECKPOINT=final0
       - BEATTHIS_DEVICE=cpu
-    volumes:
-      - ${MUSIC_DIR:-./music}:/music:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status == 200 else 1)"]
       interval: 30s
@@ -338,7 +336,9 @@ source).
 | `SQLITE_PATH`             | `<MUSIC_DIR>/.pass-the-aux.sqlite` | SQLite database file (only when `STORAGE_DRIVER=sqlite`).         |
 | `SESSION_SECRET`          | _(none)_               | HMAC key for session cookies + TOTP encryption (≥16 chars).                   |
 | `BEAT_ANALYZER`           | `local`                | `local` = built-in BPM; `pass-the-beat` = the pass-the-beat sidecar.          |
-| `PASS_THE_BEAT_URL`       | `http://pass-the-beat:8000`| Base URL of the pass-the-beat sidecar (only used when `BEAT_ANALYZER=pass-the-beat`). |
+| `PASS_THE_BEAT_URL`       | `http://pass-the-beat:8000`| Base URL of the pass-the-beat sidecar (only used when `BEAT_ANALYZER=pass-the-beat`). Tracks are uploaded to it; it needs no access to the library. |
+| `PASS_THE_BEAT_K8S_DEPLOYMENT` | _(none)_          | On Kubernetes: the sidecar's Deployment. Set it and the app scales it to 1 when tracks need a beat grid and back to 0 after `PASS_THE_BEAT_IDLE_SECONDS` (120) idle. Needs a service account allowed to `get`/`patch` `deployments/scale` on it. Also `PASS_THE_BEAT_K8S_NAMESPACE` (default: the pod's), `PASS_THE_BEAT_READY_TIMEOUT_SECONDS` (900), `PASS_THE_BEAT_BACKOFF_SECONDS` (1800, after a start that never got ready). |
+| `S3_BUCKET`               | _(none)_               | Keep the library in an S3-compatible bucket instead of `MUSIC_DIR`. Same layout: `<user id>/<file>` plus `<base>.jpg` covers. Requires `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`; optional `S3_REGION` and `S3_FORCE_PATH_STYLE=true` (OCI, MinIO). Audio is streamed through the app; nothing is written to local disk except short-lived temp files during analysis and import. |
 
 Remote record stores are configured per-user in **Settings → Remote
 record stores** — there is no env-driven seed.

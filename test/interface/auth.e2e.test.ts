@@ -27,6 +27,8 @@ async function startAuthServer(registrationOpen = true): Promise<{
     registrationOpen,
     beatAnalyzer: "local",
     passTheBeatUrl: "http://pass-the-beat:8000",
+    passTheBeatScaling: null,
+    s3: null,
   };
   const server = createApp(config);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

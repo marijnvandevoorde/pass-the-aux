@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { S3Settings } from "./s3-bucket.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -46,6 +47,20 @@ export interface Config {
   /** Base URL of the pass-the-beat sidecar (only used when
    *  beatAnalyzer === "pass-the-beat"). */
   passTheBeatUrl: string;
+  /** Run pass-the-beat on demand: the Kubernetes Deployment this app
+   *  scales to 1 when tracks need a grid and back to 0 when idle. Null
+   *  (the default) = the sidecar is assumed to be running all the time. */
+  passTheBeatScaling: {
+    deployment: string;
+    /** Empty = this pod's own namespace. */
+    namespace: string;
+    idleMs: number;
+    readyTimeoutMs: number;
+    backoffMs: number;
+  } | null;
+  /** Where the music library lives. Null = `musicDir` on disk; set =
+   *  an S3-compatible bucket (keys `<uid>/<file>`, same layout). */
+  s3: S3Settings | null;
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -103,5 +118,37 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     passTheBeatUrl:
       (env.PASS_THE_BEAT_URL ?? "").trim().replace(/\/+$/, "") ||
       "http://pass-the-beat:8000",
+    passTheBeatScaling: (env.PASS_THE_BEAT_K8S_DEPLOYMENT ?? "").trim()
+      ? {
+          deployment: (env.PASS_THE_BEAT_K8S_DEPLOYMENT ?? "").trim(),
+          namespace: (env.PASS_THE_BEAT_K8S_NAMESPACE ?? "").trim(),
+          idleMs: positiveInt(env.PASS_THE_BEAT_IDLE_SECONDS, 120) * 1000,
+          readyTimeoutMs:
+            positiveInt(env.PASS_THE_BEAT_READY_TIMEOUT_SECONDS, 900) * 1000,
+          backoffMs: positiveInt(env.PASS_THE_BEAT_BACKOFF_SECONDS, 1800) * 1000,
+        }
+      : null,
+    s3: loadS3(env),
   });
+}
+
+/** S3 settings when S3_BUCKET is set; the rest is then required. */
+function loadS3(env: NodeJS.ProcessEnv): S3Settings | null {
+  const bucket = (env.S3_BUCKET ?? "").trim();
+  if (bucket === "") return null;
+  const need = (name: string): string => {
+    const v = (env[name] ?? "").trim();
+    if (v === "") throw new Error(`S3_BUCKET is set but ${name} is empty`);
+    return v;
+  };
+  return {
+    bucket,
+    endpoint: need("S3_ENDPOINT"),
+    region: (env.S3_REGION ?? "").trim() || "us-east-1",
+    accessKeyId: need("S3_ACCESS_KEY_ID"),
+    secretAccessKey: need("S3_SECRET_ACCESS_KEY"),
+    forcePathStyle: ["1", "true", "on", "yes"].includes(
+      (env.S3_FORCE_PATH_STYLE ?? "").trim().toLowerCase(),
+    ),
+  };
 }

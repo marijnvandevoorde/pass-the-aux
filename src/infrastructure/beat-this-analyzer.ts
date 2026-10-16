@@ -1,13 +1,14 @@
-import {
-  BEATTHIS_ANALYZER_VERSION,
-  type BeatGrid,
-} from "../domain/beat-grid.ts";
+import { Readable } from "node:stream";
+import { BEATTHIS_ANALYZER_VERSION } from "../domain/beat-grid.ts";
+import { AnalyzerUnavailableError } from "../domain/errors.ts";
 import type {
+  AnalyzedBeats,
   AudioAnalyzer,
   AudioFeatures,
 } from "../domain/ports/audio-analyzer.ts";
+import type { AudioSource } from "../domain/ports/audio-source.ts";
 
-/** Wire shape of the pass-the-beat sidecar's `POST /analyze` response. */
+/** Wire shape of the pass-the-beat sidecar's analyze response. */
 interface AnalyzeResponse {
   beats: number[];
   downbeatIndices: number[];
@@ -17,16 +18,34 @@ interface AnalyzeResponse {
   firstSolidBeat: number;
 }
 
+/** Keeps the sidecar running while it is needed. `acquire` resolves once
+ *  it is ready to take requests (or throws `AnalyzerUnavailableError`);
+ *  every `acquire` is paired with one `release`. `lost` reports that the
+ *  sidecar went away mid-use, so the next `acquire` waits for it again. */
+export interface WorkerLease {
+  acquire(): Promise<void>;
+  release(): void;
+  lost(): void;
+}
+
+/** For a sidecar that simply runs all the time (docker compose). */
+export const ALWAYS_UP: WorkerLease = {
+  acquire: async () => {},
+  release: () => {},
+  lost: () => {},
+};
+
 export interface BeatThisAnalyzerOptions {
   /** Base URL of the pass-the-beat sidecar (trailing slashes are trimmed). */
   baseUrl: string;
-  /** This user's subdir relative to the shared music root — the sidecar
-   *  reads `<musicSubdir>/<trackId>` under its own `/music` mount. `""`
-   *  for the flat (auth-off) layout. */
-  musicSubdir: string;
+  /** This user's audio; each track is uploaded to the sidecar, which has
+   *  no access to the library itself. */
+  audio: AudioSource;
   /** Local analyzer for key/mode/camelot/energy — pass-the-beat is rhythm-
-   *  only — and the fallback when the sidecar can't be reached. */
+   *  only. Its provisional BPM is replaced when the grid is built. */
   fallback: AudioAnalyzer;
+  /** Starts/stops the sidecar on demand. Default: assume it is up. */
+  worker?: WorkerLease;
   /** Injectable `fetch` (defaults to the global) — used by unit tests. */
   fetchImpl?: typeof fetch;
 }
@@ -36,100 +55,138 @@ export interface BeatThisAnalyzerOptions {
  * is a learned beat tracker with far better recall than the in-house
  * Ellis-DP DSP on quiet intros / ballads / sparse percussion.
  *
- * It does rhythm only, so this adapter wraps a local `FfmpegAudioAnalyzer`
- * for key/mode/energy. The wrapped analyzer is also the graceful fallback:
- * if the sidecar is unreachable, `analyze()` still returns local features
- * and `analyzeBeats()` returns null (no grid — exactly the contract the
- * local analyzer uses when ffmpeg is absent).
+ * `analyze()` is purely local (key/mode/energy and a provisional BPM), so
+ * enriching a new track never needs the sidecar. `analyzeBeats()` is the
+ * only sidecar call; it returns the grid together with the sidecar's BPM,
+ * which `BuildBeatGrids` stores in place of the provisional one. When the
+ * sidecar is unreachable it throws `AnalyzerUnavailableError` instead of
+ * returning a lesser result, so nothing is recorded as done.
  */
 export class BeatThisAnalyzer implements AudioAnalyzer {
   readonly beatAnalyzerVersion = BEATTHIS_ANALYZER_VERSION;
   readonly #base: string;
-  readonly #subdir: string;
+  readonly #audio: AudioSource;
   readonly #fallback: AudioAnalyzer;
+  readonly #worker: WorkerLease;
   readonly #fetch: typeof fetch;
 
   constructor(opts: BeatThisAnalyzerOptions) {
     this.#base = opts.baseUrl.trim().replace(/\/+$/, "");
-    this.#subdir = opts.musicSubdir;
+    this.#audio = opts.audio;
     this.#fallback = opts.fallback;
+    this.#worker = opts.worker ?? ALWAYS_UP;
     this.#fetch = opts.fetchImpl ?? globalThis.fetch;
   }
 
-  /** BPM from pass-the-beat (a steadier tempo than the local estimate);
-   *  key/mode/camelot/energy from the local DSP. Sidecar down ⇒ the
-   *  local features stand on their own. */
-  async analyze(trackId: string): Promise<AudioFeatures | null> {
-    const local = await this.#fallback.analyze(trackId);
-    const res = await this.#post(trackId);
-    if (res === null) return local;
-    return {
-      bpm: res.bpm ?? local?.bpm ?? null,
-      key: local?.key ?? null,
-      mode: local?.mode ?? null,
-      camelot: local?.camelot ?? null,
-      energy: local?.energy ?? null,
-    };
+  analyze(trackId: string): Promise<AudioFeatures | null> {
+    return this.#fallback.analyze(trackId);
   }
 
-  async analyzeBeats(
-    trackId: string,
-  ): Promise<Omit<BeatGrid, "analyzedAt"> | null> {
-    const res = await this.#post(trackId);
-    if (res === null) return null; // unreachable / failed — graceful skip
-    if (res.beats.length === 0) return null; // no trackable pulse
+  async analyzeBeats(trackId: string): Promise<AnalyzedBeats | null> {
+    let stat;
+    try {
+      stat = await this.#audio.stat(trackId);
+    } catch {
+      return null; // gone / not audio — nothing to analyse
+    }
+    await this.#worker.acquire();
+    try {
+      const res = await this.#post(trackId, stat.size);
+      if (res === null) return emptyGrid(trackId, 0); // undecodable: final
+      if (res.beats.length === 0) return emptyGrid(trackId, res.duration);
 
-    // pass-the-beat emits explicit per-beat downbeats; the browser still
-    // models a rigid 4/4 grid (`downbeatPhase`), so collapse to the
-    // phase of the first downbeat. Faithful for 4/4 dance music — the
-    // explicit downbeat array is a deliberate future enhancement.
-    const firstDownbeat = res.downbeatIndices[0] ?? 0;
-    const downbeatPhase = (((firstDownbeat % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+      // pass-the-beat emits explicit per-beat downbeats; the browser still
+      // models a rigid 4/4 grid (`downbeatPhase`), so collapse to the
+      // phase of the first downbeat. Faithful for 4/4 dance music — the
+      // explicit downbeat array is a deliberate future enhancement.
+      const firstDownbeat = res.downbeatIndices[0] ?? 0;
+      const downbeatPhase = (((firstDownbeat % 4) + 4) % 4) as 0 | 1 | 2 | 3;
 
-    return {
-      trackId,
-      durationSec: res.duration,
-      beats: Float32Array.from(res.beats),
-      downbeatPhase,
-      firstSolidBeatIndex: res.firstSolidBeat,
-      confidence: res.confidence,
-      analyzerVersion: BEATTHIS_ANALYZER_VERSION,
-    };
+      return {
+        trackId,
+        durationSec: res.duration,
+        beats: Float32Array.from(res.beats),
+        downbeatPhase,
+        firstSolidBeatIndex: res.firstSolidBeat,
+        confidence: res.confidence,
+        analyzerVersion: BEATTHIS_ANALYZER_VERSION,
+        bpm: res.bpm,
+      };
+    } finally {
+      this.#worker.release();
+    }
   }
 
-  #workerPath(trackId: string): string {
-    return this.#subdir ? `${this.#subdir}/${trackId}` : trackId;
-  }
-
-  /** POST to the sidecar; null on any unreachable/non-OK/garbage result
-   *  so every caller degrades gracefully. */
-  async #post(trackId: string): Promise<AnalyzeResponse | null> {
+  /** Uploads the track. Null when the sidecar rejects the audio itself
+   *  (a permanent property of the file); throws AnalyzerUnavailableError
+   *  when the sidecar can't do the work right now. */
+  async #post(trackId: string, size: number): Promise<AnalyzeResponse | null> {
     let res: Response;
     try {
-      res = await this.#fetch(`${this.#base}/analyze`, {
+      const body = Readable.toWeb(this.#audio.createStream(trackId)) as ReadableStream;
+      res = await this.#fetch(`${this.#base}/analyze-audio`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: this.#workerPath(trackId) }),
-      });
-    } catch {
-      return null; // sidecar unreachable
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(size),
+          "X-Track-Name": encodeURIComponent(trackId),
+        },
+        body,
+        duplex: "half",
+      } as RequestInit);
+    } catch (e) {
+      this.#worker.lost();
+      throw new AnalyzerUnavailableError(
+        `pass-the-beat unreachable: ${(e as Error).message}`,
+      );
     }
-    if (!res.ok) return null; // 4xx/5xx — treat as "no grid"
+    if (res.status >= 400 && res.status <= 500 && res.status !== 404 && res.status !== 408 && res.status !== 429) {
+      // 422 undecodable, 413 too big, 500 the model failed on this input:
+      // properties of the file, so retrying would only fail again.
+      await res.body?.cancel();
+      return null;
+    }
+    if (!res.ok) {
+      // 503 still loading, 502/504 proxy, 404 an old sidecar without
+      // /analyze-audio: the sidecar, not the track — try again later.
+      await res.body?.cancel();
+      this.#worker.lost();
+      throw new AnalyzerUnavailableError(`pass-the-beat HTTP ${res.status}`);
+    }
     let json: unknown;
     try {
       json = await res.json();
     } catch {
-      return null;
+      throw new AnalyzerUnavailableError("pass-the-beat sent garbage");
     }
-    return parseAnalyze(json);
+    const parsed = parseAnalyze(json);
+    if (parsed === null) {
+      throw new AnalyzerUnavailableError("pass-the-beat sent an unexpected shape");
+    }
+    return parsed;
   }
+}
+
+/** "Analysed by beat-this, no pulse" — stored so the track is not sent
+ *  again; the beat-grid endpoint treats it as "no grid". */
+function emptyGrid(trackId: string, durationSec: number): AnalyzedBeats {
+  return {
+    trackId,
+    durationSec,
+    beats: new Float32Array(0),
+    downbeatPhase: 0,
+    firstSolidBeatIndex: -1,
+    confidence: 0,
+    analyzerVersion: BEATTHIS_ANALYZER_VERSION,
+    bpm: null,
+  };
 }
 
 const numbers = (v: unknown): number[] =>
   Array.isArray(v) ? v.filter((n): n is number => typeof n === "number") : [];
 
-/** Defensive parse — the sidecar is trusted, but a version skew should
- *  degrade to "no grid", never throw. */
+/** Defensive parse — the sidecar is trusted, but a version skew must not
+ *  throw from deep inside. */
 function parseAnalyze(json: unknown): AnalyzeResponse | null {
   if (json === null || typeof json !== "object") return null;
   const j = json as Record<string, unknown>;
