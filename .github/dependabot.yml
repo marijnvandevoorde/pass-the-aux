@@ -22,7 +22,7 @@ updates:
           - "minor"
           - "patch"
 
-  # Base images in Dockerfile and docker-compose.yml at the repo root.
+  # Base images in the Dockerfile at the repo root.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -30,6 +30,20 @@ updates:
     open-pull-requests-limit: 10
     groups:
       docker-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Images pinned in the compose files at the repo root (the dev MySQL).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      docker-compose-minor-patch:
         patterns:
           - "*"
         update-types:

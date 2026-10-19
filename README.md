@@ -163,7 +163,8 @@ docker compose up -d --build
 ```
 
 Flip on the neural analyzer by setting `BEAT_ANALYZER=pass-the-beat` in this
-project's `.env`. Add the remote record store under **Settings → Remote
+project's `.env` (why a neural sidecar: [docs/beat-sync-research.md](docs/beat-sync-research.md)).
+Add the remote record store under **Settings → Remote
 record stores** (URL `http://pass-the-remote:3000` and the Bearer secret
 you set when starting pass-the-remote).
 
