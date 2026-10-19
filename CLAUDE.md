@@ -120,7 +120,8 @@ plug in over HTTP on a shared docker network (`pta`) when present:
 - **[pass-the-beat](https://github.com/marijnvandevoorde/pass-the-beat)** — neural beat-tracking sidecar wrapping the [beat-this](https://github.com/CPJKU/beat_this) model (`BEAT_ANALYZER=pass-the-beat`). Without it, the built-in BPM detector handles tracks with a clear beat; with it, beat-grids are dramatically more accurate, sync is solid, and DJ'ing is meaningfully better. Container name `pass-the-beat`.
 
 These are *external* — never check them out inside this repo, never wire
-them into our compose file directly. The README's *Docker → Running with
+them into `docker-compose.yml` directly (the opt-in
+`docker-compose.dev.example.yml` builds them from sibling checkouts). The README's *Docker → Running with
 companions* shows the side-by-side compose pattern.
 
 ## Remote record stores

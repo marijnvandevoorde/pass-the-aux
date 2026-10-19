@@ -1,0 +1,118 @@
+# Local dev stack: the mixer + pass-the-remote + pass-the-beat (+ MySQL).
+#
+# The mixer and pass-the-remote are built from source. Clone
+# pass-the-remote next to this repo first:
+#
+#   git clone https://github.com/marijnvandevoorde/pass-the-remote.git ../pass-the-remote
+#
+# pass-the-beat runs from its published image (building it pulls in
+# torch). To hack on it, clone ../pass-the-beat and swap `image:` for the
+# commented `build:` below.
+#
+#   cp .env.example .env    # set SESSION_SECRET, REMOTE_SECRET and
+#                           # BEAT_ANALYZER=pass-the-beat
+#   docker compose -f docker-compose.dev.example.yml up -d --build
+#   docker compose -f docker-compose.dev.example.yml down       # stop
+#
+# MySQL instead of SQLite: set STORAGE_DRIVER=mysql in .env and add
+# `--profile mysql` to the commands above.
+#
+# Then open http://localhost:5174 and add the record store under
+# Settings → Remote record stores: kind `pta`, URL
+# http://pass-the-remote:3000, secret = REMOTE_SECRET.
+
+name: pass-the-aux-dev
+
+services:
+  pass-the-aux:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    ports:
+      - "${PORT:-5174}:5174"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5174
+      - MUSIC_DIR=/app/music
+      - SQLITE_PATH=/data/pass-the-aux.sqlite
+      - PUBLIC_BASE_URL
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET in .env}
+      - REGISTRATION_OPEN=${REGISTRATION_OPEN:-on}
+      - STORAGE_DRIVER=${STORAGE_DRIVER:-sqlite}
+      # Only read when STORAGE_DRIVER=mysql (the `mysql` profile).
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-passtheaux}
+      - DB_USER=${DB_USER:-passtheaux}
+      - DB_PASSWORD
+      - BEAT_ANALYZER=${BEAT_ANALYZER:-pass-the-beat}
+      - PASS_THE_BEAT_URL=http://pass-the-beat:8000
+    volumes:
+      - ${MUSIC_HOST_DIR:-./music}:/app/music
+      - ./data/dev/pass-the-aux:/data
+    depends_on:
+      pass-the-beat:
+        condition: service_started
+      pass-the-remote:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+        required: false
+    networks: [pta]
+
+  # Neural beat-tracking sidecar, internal only: http://pass-the-beat:8000
+  pass-the-beat:
+    image: ghcr.io/marijnvandevoorde/pass-the-beat:latest
+    # build: ../pass-the-beat
+    environment:
+      - BEATTHIS_CHECKPOINT=final0
+      - BEATTHIS_DEVICE=${BEATTHIS_DEVICE:-cpu}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks: [pta]
+
+  # Self-hosted record store, internal only: http://pass-the-remote:3000
+  # It serves its own catalog (RECORDSTORE_DIR), separate from the mixer's
+  # library.
+  pass-the-remote:
+    build: ../pass-the-remote
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - MUSIC_DIR=/music
+      - DB_PATH=/data/library.db
+      - REMOTE_SECRET=${REMOTE_SECRET:?set REMOTE_SECRET in .env}
+      - SCAN_INTERVAL_S=${SCAN_INTERVAL_S:-300}
+    volumes:
+      - ${RECORDSTORE_DIR:-./data/dev/recordstore}:/music:ro
+      - ./data/dev/pass-the-remote:/data
+    networks: [pta]
+
+  # Optional MySQL (`--profile mysql`), internal only: mysql:3306
+  mysql:
+    image: mysql:8.4
+    profiles: [mysql]
+    command: --innodb-buffer-pool-size=64M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_NAME:-passtheaux}
+      MYSQL_USER: ${DB_USER:-passtheaux}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - ./data/dev/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [pta]
+
+networks:
+  pta:
+    name: pta
+    driver: bridge

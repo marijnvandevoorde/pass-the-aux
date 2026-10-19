@@ -163,9 +163,24 @@ docker compose up -d --build
 ```
 
 Flip on the neural analyzer by setting `BEAT_ANALYZER=pass-the-beat` in this
-project's `.env`. Add the remote record store under **Settings → Remote
+project's `.env` (why a neural sidecar: [docs/beat-sync-research.md](docs/beat-sync-research.md)).
+Add the remote record store under **Settings → Remote
 record stores** (URL `http://pass-the-remote:3000` and the Bearer secret
 you set when starting pass-the-remote).
+
+#### Local dev stack
+
+`docker-compose.dev.example.yml` runs the mixer and pass-the-remote built
+from source (clone pass-the-remote next to this repo) plus the published
+pass-the-beat image, all on the `pta` network, with an optional MySQL:
+
+```bash
+cp .env.example .env   # set SESSION_SECRET, REMOTE_SECRET, BEAT_ANALYZER=pass-the-beat
+docker compose -f docker-compose.dev.example.yml up -d --build
+# MySQL instead of SQLite: STORAGE_DRIVER=mysql in .env, add --profile mysql
+```
+
+Data lands in `./data/dev/` (gitignored).
 
 #### Full stack with published images (MySQL + companions)
 
