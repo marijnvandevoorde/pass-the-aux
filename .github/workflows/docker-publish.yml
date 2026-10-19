@@ -1,9 +1,10 @@
 name: Publish image
 
 # Builds the container image and pushes it to the GitHub Container Registry
-# (ghcr.io) whenever a version tag is pushed, e.g.:
+# (ghcr.io). Manual only: push a version tag, then run this workflow on it:
 #
 #   git tag v1.2.3 && git push origin v1.2.3
+#   gh workflow run docker-publish.yml --ref v1.2.3
 #
 # Each platform is built on its native runner (amd64 on ubuntu-latest,
 # arm64 on ubuntu-24.04-arm) to avoid slow QEMU emulation. The per-platform
@@ -15,9 +16,7 @@ name: Publish image
 # visibility to Public so anyone can pull it for free (public packages are
 # unlimited on GHCR; private ones count against the free-plan storage quota).
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read

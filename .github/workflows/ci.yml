@@ -1,11 +1,10 @@
 name: CI
 
-# Fast gate for every PR (and pushes to main): typecheck, unit tests,
+# Fast gate for every PR: typecheck, unit tests,
 # and the web build. This is the check that protects main.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   unit:
