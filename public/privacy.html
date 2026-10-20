@@ -42,16 +42,45 @@
 
       <p>Pass the Aux is a small DJ app made by Small Victories. This page says what it keeps about you, and why.</p>
 
+      <h2>Who runs Pass the Aux</h2>
+      <p>Small Victories (Marijn Vandevoorde), Mellestraat 303, 9090 Merelbeke-Melle, Belgium · enterprise number BE0793.301.929 · <a href="mailto:hello@small-victories.co">hello@small-victories.co</a>. Small Victories is responsible (the controller) for the data described here.</p>
+
       <h2>If you have an account</h2>
       <ul>
-        <li><strong>Your login:</strong> your username, your password (stored only as a salted hash), and, if you turn on two-factor sign-in, its secret and recovery codes.</li>
+        <li><strong>Your login:</strong> your username, your password (stored only as a salted hash), and the two-factor sign-in secret and recovery codes (the codes stored only as hashes). If you skip two-factor sign-in, the secret is removed.</li>
         <li><strong>Your library:</strong> the music you add, its cover art, and what the app works out about each track (tempo, key, energy, beat grid), plus the crates you make. It is private to your account.</li>
-        <li><strong>Record stores you connect:</strong> the name, address and access key you enter, so the app can search them for you.</li>
+        <li><strong>Record stores you connect:</strong> the name, address and access key you enter, so the app can search them for you. When you search or import from one, the server sends your search to that store.</li>
         <li><strong>To fill in cover art and track details,</strong> the server may look up a track's artist and title in public music databases. Nothing about you is sent with it.</li>
       </ul>
 
       <h2>If you join a party as a guest</h2>
-      <p>You don't need an account. The first name you give, your requests and your votes are shared with the DJ and the other guests of that party. The server holds a party in memory only and never writes it to a database. Your name and votes are also remembered in your own browser, so you don't have to type them again.</p>
+      <p>You don't need an account. The first name you give, your requests and your votes are shared with the DJ and the other guests of that party. The server holds a party in memory only and never writes it to a database; it is gone when the server restarts. Your name and votes are also remembered in your own browser, so you don't have to type them again.</p>
+
+      <h2>Why</h2>
+      <ul>
+        <li><strong>Your account, library and parties:</strong> to provide the service you use (GDPR art. 6(1)(b)).</li>
+        <li><strong>Backups and protection against abuse:</strong> our legitimate interest in a safe, reliable service (art. 6(1)(f)).</li>
+        <li><strong>Analytics:</strong> only with your consent (art. 6(1)(a)), which you can withdraw at any time.</li>
+      </ul>
+      <p>Pass the Aux doesn't sell data, show ads or send marketing email.</p>
+
+      <h2>Who else receives it</h2>
+      <ul>
+        <li><strong>Oracle Cloud Infrastructure:</strong> the servers, the database and the storage for your music, in Amsterdam (EU).</li>
+        <li><strong>Hetzner Online</strong> (Germany): an encrypted copy of the nightly backup and of the music storage, in the EU.</li>
+        <li><strong>Cloudflare:</strong> DNS, the secure connection to the site and protection against attacks. It sees your IP address and the pages you request.</li>
+        <li><strong>Google:</strong> fonts on some pages, and analytics only if you accept (see below).</li>
+      </ul>
+      <p>Cloudflare and Google may process data outside the EU; those transfers are covered by the EU-U.S. Data Privacy Framework or the European Commission's standard contractual clauses.</p>
+
+      <h2>How long it is kept</h2>
+      <ul>
+        <li><strong>Your account and library</strong> stay until you ask us to delete them. There is no delete button for those, so mail us.</li>
+        <li><strong>Crates and record stores</strong> you delete in the app are deleted at once.</li>
+        <li><strong>Backups:</strong> the database is backed up every night and each backup is kept for 30 days; music files you no longer have are kept in the backup copy for 30 days. So deleted data is gone from the backups within about 30 days.</li>
+        <li><strong>Parties</strong> live only in the server's memory (see above).</li>
+        <li><strong>Your browser:</strong> your settings, guest name, votes and cookie choice stay until you clear your browser's storage.</li>
+      </ul>
 
       <h2>Cookies and your browser</h2>
       <ul>
@@ -70,7 +99,7 @@
       </ul>
 
       <h2>Your rights</h2>
-      <p>Want a copy of your data, or your account and library deleted? Questions about any of this, or about your rights under the GDPR? Mail <a href="mailto:hello@small-victories.co">hello@small-victories.co</a>.</p>
+      <p>You can ask for a copy of your data, have it corrected or deleted, object to or restrict its use, and withdraw consent at any time. Mail <a href="mailto:hello@small-victories.co">hello@small-victories.co</a>; we answer within one month. You can also complain to the Belgian Data Protection Authority (<a href="https://www.dataprotectionauthority.be" target="_blank" rel="noopener">dataprotectionauthority.be</a>) or the authority where you live.</p>
 
       <p><a href="/login">Back to Pass the Aux</a></p>
     </main>
