@@ -121,17 +121,34 @@ export function nextDownbeatAfter(
   return null;
 }
 
-/** Average tempo of a beat grid (BPM), or null when it's too short. */
+/** Tempo of a beat grid (BPM), or null when it's too short. Robust to
+ *  messy sections (a breakdown where the tracker doubled up, a gap): it
+ *  averages only the beat intervals within ±8 % of the median interval,
+ *  so a few odd bars can't drag the tempo off (a plain average put a
+ *  132 BPM track at 135.6). */
 export function gridBpm(beats: ArrayLike<number>): number | null {
   const n = beats.length;
   if (n < 8) return null;
-  const first = beats[0] ?? 0;
-  const last = beats[n - 1] ?? 0;
-  const span = last - first;
-  if (span <= 0) return null;
-  const bpm = (60 * (n - 1)) / span;
+  const iv: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const d = (beats[i] ?? 0) - (beats[i - 1] ?? 0);
+    if (d > 0) iv.push(d);
+  }
+  if (iv.length < 7) return null;
+  const sorted = [...iv].sort((x, y) => x - y);
+  const med = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  if (!(med > 0)) return null;
+  let sum = 0;
+  let k = 0;
+  for (const d of iv) {
+    if (d >= med * 0.92 && d <= med * 1.08) {
+      sum += d;
+      k++;
+    }
+  }
+  if (k < 7) return null;
+  const bpm = (60 * k) / sum;
   return Number.isFinite(bpm) && bpm > 30 && bpm < 300
     ? Math.round(bpm * 100) / 100
     : null;
 }
-

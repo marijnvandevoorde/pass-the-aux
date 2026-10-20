@@ -12,3 +12,15 @@ test("gridBpm: too short or degenerate grids give null", () => {
   assert.equal(gridBpm(new Array(10).fill(3)), null);
 });
 
+
+test("gridBpm: a messy section doesn't drag the tempo off", () => {
+  // 132 BPM, quantised to 20 ms frames like pass-the-beat, with a
+  // stretch where the tracker found extra beats (~165 BPM).
+  const beats: number[] = [];
+  let t = 0.16;
+  for (let i = 0; i < 25; i++) { beats.push(Math.round(t / 0.02) * 0.02); t += 60 / 132; }
+  for (let i = 0; i < 40; i++) { beats.push(Math.round(t / 0.02) * 0.02); t += 60 / 165; }
+  for (let i = 0; i < 200; i++) { beats.push(Math.round(t / 0.02) * 0.02); t += 60 / 132; }
+  const bpm = gridBpm(beats)!;
+  assert.ok(Math.abs(bpm - 132) < 0.5, `got ${bpm}`);
+});
