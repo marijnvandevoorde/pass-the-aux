@@ -78,6 +78,8 @@ const SCHEMA = `
     analyzer_version  INTEGER NOT NULL,
     analyzed_at       INTEGER NOT NULL,
     beats_blob        BLOB    NOT NULL,
+    mix_out_index     INTEGER NOT NULL DEFAULT -1,
+    bars_blob         BLOB,
     PRIMARY KEY (user_id, track_id)
   );
 
@@ -116,6 +118,9 @@ export function ensureSchema(db: Db): void {
   // CREATE TABLE IF NOT EXISTS never alters an existing table, so columns
   // added after a DB was first created need an explicit, guarded ALTER.
   addColumnIfMissing(db, "users", "plan", "TEXT NOT NULL DEFAULT 'free'");
+  // Mix-out point and per-bar downbeats (pass-the-beat analyzer v3).
+  addColumnIfMissing(db, "beat_grids", "mix_out_index", "INTEGER NOT NULL DEFAULT -1");
+  addColumnIfMissing(db, "beat_grids", "bars_blob", "BLOB");
   ready.add(db);
 }
 

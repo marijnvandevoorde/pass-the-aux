@@ -70,6 +70,12 @@ export interface BeatGridResponse {
   beats: number[];
   downbeatPhase: 0 | 1 | 2 | 3;
   firstSolidCueSec: number | null;
+  /** Mix-out point (seconds): Automix starts the next track here. Absent
+   *  from older servers. */
+  mixOutCueSec?: number | null;
+  /** Every bar's downbeat (indices into `beats`); null/absent: bars
+   *  follow `downbeatPhase`. */
+  barStarts?: number[] | null;
   confidence: number;
 }
 

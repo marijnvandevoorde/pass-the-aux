@@ -13,12 +13,26 @@ export interface AutomixDeck {
   readonly rate: number;
   readonly cuePoint: number;
   readonly beatLengthSec: number | null;
+  /** Where the next track should come in (track seconds): the DJ's
+   *  mix-out point or the analyser's; null = fixed time before the end. */
+  readonly mixOutSec: number | null;
+  readonly tempoPercent: number;
   play(): void;
   seek(seconds: number): void;
   unload(): void;
+  setTempo(percent: number): void;
 }
 
 export interface TransitionHandle {
+  cancel(): void;
+}
+
+/** The tempo drift policy (`TempoGlide` in tempo-glide.ts), injected so
+ *  this file needs no sibling import. */
+export interface AutomixGlide {
+  /** Start gliding `deck` back to 0 %; returns seconds, or null. */
+  start(deck: AutomixDeck, nowSec: number): number | null;
+  step(nowSec: number): unknown;
   cancel(): void;
 }
 
@@ -36,12 +50,17 @@ export interface AutomixDeps {
    *  false when the load failed or a newer load / eject superseded it. */
   loadToDeck(track: TrackInfo, deck: DeckId): Promise<boolean>;
   fadeSeconds(): number;
-  /** Start the shared beat-aligned crossfade `from` → `to`. */
+  /** Start the shared beat-aligned crossfade `from` → `to`; at the
+   *  outgoing track's mix-out point when `mixOutSec` is set. */
   transition(
     from: DeckId,
     to: DeckId,
     onDone: (info: { cancelled: boolean }) => void,
+    opts?: { mixOutSec: number | null },
   ): TransitionHandle | null;
+  /** After each automatic fade, glide the new track back to its own
+   *  tempo (see tempo-glide.ts). Absent: tempos stay matched. */
+  glide?: AutomixGlide;
   /** Move the crossfader instantly (arming, rescue starts). */
   setCrossfade(position: number): void;
   /** supply a compatible next track when the queue is
@@ -61,6 +80,9 @@ const MAX_LOAD_ATTEMPTS = 3;
 const RETRY_MS = 3000;
 /** Auto-fill picks a track this long before the fade is due. */
 const AUTOFILL_LEAD_SEC = 30;
+/** A mix-out point closer than this (real seconds) counts as passed: the
+ *  transition can't be scheduled on it any more. */
+const MIX_OUT_MIN_LEAD_SEC = 0.15;
 
 const other = (id: DeckId): DeckId => (id === "A" ? "B" : "A");
 const sideOf = (id: DeckId): number => (id === "A" ? -1 : 1);
@@ -126,10 +148,7 @@ export class Automix {
     if (!this.on || this.#fade || this.#active === null || !this.#idleReady()) return null;
     const act = this.#d.decks[this.#active];
     if (!act.isPlaying) return null;
-    const rate = act.rate > 0 ? act.rate : 1;
-    const remaining = (act.duration - act.currentTime) / rate;
-    const bar = act.beatLengthSec ? (4 * act.beatLengthSec) / rate : 2;
-    return Math.max(0, remaining - this.#d.fadeSeconds() - bar);
+    return Math.max(0, this.#mixTiming(act).inSec);
   }
 
   /** The track lined up on the idle deck (loaded or loading), if any. */
@@ -217,6 +236,7 @@ export class Automix {
    *  off halfway would leave both decks playing at half volume). */
   stop(): void {
     this.on = false;
+    this.#d.glide?.cancel();
     this.#syncToggle();
     this.#d.ui.status(
       this.#queue.length ? `${this.#queue.length} queued` : "automix off",
@@ -283,6 +303,8 @@ export class Automix {
 
   /** Called on a timer and every animation frame. */
   tick(): void {
+    if (this.#fade) this.#d.glide?.cancel();
+    else this.#d.glide?.step(this.#now() / 1000);
     this.#reconcile();
   }
 
@@ -328,6 +350,30 @@ export class Automix {
     if (this.#active !== before) this.#syncToggle();
   }
 
+  /**
+   * When the automatic transition starts, in real seconds from now, and
+   * where: at the active track's mix-out point (triggered a bar ahead, so
+   * the transition can be scheduled on it) while that is still ahead and
+   * leaves at least a bar of track; otherwise a fade length plus a bar
+   * before the end, as without a mix-out point.
+   */
+  #mixTiming(act: AutomixDeck): { inSec: number; mixOutSec: number | null } {
+    const rate = act.rate > 0 ? act.rate : 1;
+    // The transition waits for the next bar before it starts: trigger a
+    // bar early so the fade is done by the time the track ends.
+    const bar = act.beatLengthSec ? (4 * act.beatLengthSec) / rate : 2;
+    const mo = act.mixOutSec;
+    if (mo !== null && Number.isFinite(mo)) {
+      const until = (mo - act.currentTime) / rate;
+      const after = (act.duration - mo) / rate;
+      if (until > MIX_OUT_MIN_LEAD_SEC && after >= bar) {
+        return { inSec: until - bar, mixOutSec: mo };
+      }
+    }
+    const remaining = (act.duration - act.currentTime) / rate;
+    return { inSec: remaining - this.#d.fadeSeconds() - bar, mixOutSec: null };
+  }
+
   #reconcile(): void {
     if (!this.on || this.#fade || this.#booting || this.#suspended) return;
     this.#adopt();
@@ -339,19 +385,14 @@ export class Automix {
       return;
     }
     const act = this.#d.decks[this.#active];
-    const rate = act.rate > 0 ? act.rate : 1;
-    const remaining = (act.duration - act.currentTime) / rate;
-    // The transition waits for the next bar before it starts: trigger a
-    // bar early so the fade is done by the time the track ends.
-    const bar = act.beatLengthSec ? (4 * act.beatLengthSec) / rate : 2;
-    const fadeAt = this.#d.fadeSeconds() + bar;
+    const { inSec, mixOutSec } = this.#mixTiming(act);
 
     if (!this.#idleReady() && !this.#pending && this.#now() >= this.#retryAt) {
-      // Auto-fill is the last resort: only once the playing track is
-      // nearly done (or has run out), so a track the DJ or a guest
-      // queues in the meantime still goes first.
+      // Auto-fill is the last resort: only once the mix is near (or the
+      // playing track has run out), so a track the DJ or a guest queues
+      // in the meantime still goes first.
       const late =
-        act.ended || !act.buffer || (act.isPlaying && remaining <= fadeAt + AUTOFILL_LEAD_SEC);
+        act.ended || !act.buffer || (act.isPlaying && inSec <= AUTOFILL_LEAD_SEC);
       void this.#prepareNext(late);
     }
 
@@ -362,7 +403,7 @@ export class Automix {
       return;
     }
     if (!act.isPlaying || !this.#idleReady()) return;
-    if (remaining <= fadeAt) this.#beginFade();
+    if (inSec <= 0) this.#beginFade(mixOutSec);
   }
 
   /** Load the head of the queue onto the first available deck, PAUSED,
@@ -450,10 +491,15 @@ export class Automix {
     return run;
   }
 
-  #beginFade(): void {
+  /** Start the transition: at `mixOutSec` of the active track when set
+   *  (the automatic mix), else at the next bar (Fade to next, skip). */
+  #beginFade(mixOutSec: number | null = null): void {
     if (this.#fade || this.#active === null || !this.#idleReady()) return;
     const from = this.#active;
     const to = other(from);
+    // The outgoing deck's tempo must hold still while the transition is
+    // planned and runs.
+    this.#d.glide?.cancel();
     const handle = this.#d.transition(from, to, ({ cancelled }) => {
       this.#fade = null;
       if (cancelled) {
@@ -469,11 +515,18 @@ export class Automix {
       this.#active = to;
       this.#syncToggle();
       this.#render();
+      // Tempo drift: the new track was matched to the old one's tempo;
+      // bring it back to its own over the next phrases.
+      const glideSec = this.#d.glide?.start(this.#d.decks[to], this.#now() / 1000) ?? null;
       this.#reconcile();
       if (this.#queue.length === 0 && !this.#pending && !this.#idleReady()) {
         this.#d.ui.status(`automix — last track playing on Deck ${to}`);
+      } else if (glideSec !== null) {
+        this.#d.ui.status(
+          `Deck ${to} gliding back to its own tempo over ${Math.round(glideSec)} s`,
+        );
       }
-    });
+    }, { mixOutSec });
     if (!handle) return;
     this.#fade = handle;
     this.#render();

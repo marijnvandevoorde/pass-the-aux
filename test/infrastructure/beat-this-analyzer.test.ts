@@ -132,6 +132,26 @@ test("analyzeBeats uploads the audio and maps the reply onto a grid + BPM", asyn
   assert.deepEqual(await bodyBytes(calls[0]!.init), AUDIO);
 });
 
+test("v3 sidecar: per-bar downbeats and the mix-out point are kept", async () => {
+  const { fetchImpl } = stub(() =>
+    okResponse({ ...SAMPLE, barStarts: [0, 3, 7], mixOutBeat: 3 }),
+  );
+  const grid = await analyzer(fetchImpl).analyzeBeats("s.mp3");
+  assert.deepEqual(Array.from(grid!.barStarts!), [0, 3, 7]);
+  assert.equal(grid!.mixOutBeatIndex, 3);
+});
+
+test("older sidecar or a malformed bar list: no bars, no mix-out", async () => {
+  const old = await analyzer(stub(() => okResponse(SAMPLE)).fetchImpl).analyzeBeats("s.mp3");
+  assert.equal(old!.barStarts, null);
+  assert.equal(old!.mixOutBeatIndex, -1);
+  const bad = await analyzer(
+    stub(() => okResponse({ ...SAMPLE, barStarts: [4, 2], mixOutBeat: 99 })).fetchImpl,
+  ).analyzeBeats("s.mp3");
+  assert.equal(bad!.barStarts, null); // not ascending
+  assert.equal(bad!.mixOutBeatIndex, -1); // past the last beat
+});
+
 test("downbeatPhase is the first downbeat index mod 4", async () => {
   const { fetchImpl } = stub(() =>
     okResponse({ ...SAMPLE, downbeatIndices: [6, 10] }),

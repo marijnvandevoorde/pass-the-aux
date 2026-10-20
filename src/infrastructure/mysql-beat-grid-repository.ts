@@ -1,6 +1,7 @@
 import type { BeatGrid } from "../domain/beat-grid.ts";
 import type { BeatGridRepository } from "../domain/ports/beat-grid-repository.ts";
 import { ensureSchema, type Db } from "./mysql-pool.ts";
+import { packBarStarts, unpackBarStarts } from "./bar-starts-blob.ts";
 
 /** Pure mapper: MySQL row → BeatGrid. Unit-tested without a live DB. */
 export function rowToBeatGrid(row: {
@@ -13,6 +14,9 @@ export function rowToBeatGrid(row: {
   analyzer_version: number;
   analyzed_at: number | bigint;
   beats_blob: Buffer;
+  /** Added with pass-the-beat analyzer v3; absent in old fixtures. */
+  mix_out_index?: number | bigint | null;
+  bars_blob?: Buffer | null;
 }): BeatGrid | null {
   const count = Number(row.beat_count);
   if (count < 0) return null;
@@ -31,6 +35,11 @@ export function rowToBeatGrid(row: {
     beats,
     downbeatPhase: phase,
     firstSolidBeatIndex: Number(row.first_solid_index),
+    mixOutBeatIndex:
+      row.mix_out_index === null || row.mix_out_index === undefined
+        ? -1
+        : Number(row.mix_out_index),
+    barStarts: unpackBarStarts(row.bars_blob, count),
     confidence: Number(row.confidence),
     analyzedAt: Number(row.analyzed_at),
     analyzerVersion: row.analyzer_version,
@@ -52,6 +61,8 @@ export function beatGridToRow(
   ver: number;
   at: number;
   beats: Buffer;
+  mixOut: number;
+  bars: Buffer | null;
 } {
   const buf = Buffer.allocUnsafe(grid.beats.length * 4);
   for (let i = 0; i < grid.beats.length; i++) {
@@ -68,6 +79,8 @@ export function beatGridToRow(
     ver: grid.analyzerVersion,
     at: grid.analyzedAt,
     beats: buf,
+    mixOut: grid.mixOutBeatIndex ?? -1,
+    bars: packBarStarts(grid.barStarts),
   };
 }
 
@@ -84,7 +97,7 @@ export class MysqlBeatGridRepository implements BeatGridRepository {
     const [rows] = await this.#pool.execute(
       `SELECT track_id, duration_sec, beat_count, downbeat_phase,
               first_solid_index, confidence, analyzer_version, analyzed_at,
-              beats_blob
+              beats_blob, mix_out_index, bars_blob
          FROM beat_grids
         WHERE user_id = :uid AND track_id = :id
         LIMIT 1`,
@@ -107,9 +120,9 @@ export class MysqlBeatGridRepository implements BeatGridRepository {
       `INSERT INTO beat_grids
          (user_id, track_id, duration_sec, beat_count, downbeat_phase,
           first_solid_index, confidence, analyzer_version, analyzed_at,
-          beats_blob)
+          beats_blob, mix_out_index, bars_blob)
        VALUES (:uid, :id, :duration, :count, :phase, :firstSolid, :conf,
-               :ver, :at, :beats)
+               :ver, :at, :beats, :mixOut, :bars)
        ON DUPLICATE KEY UPDATE
          duration_sec=VALUES(duration_sec),
          beat_count=VALUES(beat_count),
@@ -118,7 +131,9 @@ export class MysqlBeatGridRepository implements BeatGridRepository {
          confidence=VALUES(confidence),
          analyzer_version=VALUES(analyzer_version),
          analyzed_at=VALUES(analyzed_at),
-         beats_blob=VALUES(beats_blob)`,
+         beats_blob=VALUES(beats_blob),
+         mix_out_index=VALUES(mix_out_index),
+         bars_blob=VALUES(bars_blob)`,
       params,
     );
   }

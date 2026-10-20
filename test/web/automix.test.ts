@@ -6,6 +6,7 @@ import {
   type AutomixDeps,
 } from "../../src/web/automix.ts";
 import type { DeckId, TrackInfo } from "../../src/web/types.ts";
+import { TempoGlide } from "../../src/web/tempo-glide.ts";
 
 class FakeDeck implements AutomixDeck {
   readonly id: DeckId;
@@ -18,6 +19,8 @@ class FakeDeck implements AutomixDeck {
   rate = 1;
   cuePoint = 0;
   beatLengthSec: number | null = 0.5;
+  mixOutSec: number | null = null;
+  tempoPercent = 0;
   unloads = 0;
   constructor(id: DeckId) {
     this.id = id;
@@ -36,8 +39,12 @@ class FakeDeck implements AutomixDeck {
   seek(s: number): void {
     this.currentTime = s;
   }
+  setTempo(p: number): void {
+    this.tempoPercent = p;
+  }
   unload(): void {
     this.unloads++;
+    this.mixOutSec = null;
     this.buffer = null;
     this.track = null;
     this.isPlaying = false;
@@ -54,7 +61,11 @@ interface Deferred {
 }
 
 function setup(
-  opts: { autoResolve?: boolean; autoFill?: () => TrackInfo | null } = {},
+  opts: {
+    autoResolve?: boolean;
+    autoFill?: () => TrackInfo | null;
+    glide?: TempoGlide;
+  } = {},
 ) {
   const decks = { A: new FakeDeck("A"), B: new FakeDeck("B") };
   const loads: Deferred[] = [];
@@ -63,6 +74,7 @@ function setup(
     to: DeckId;
     done(cancelled?: boolean): void;
     cancelled: boolean;
+    mixOutSec: number | null;
   }> = [];
   const statuses: string[] = [];
   let clock = 0;
@@ -82,10 +94,11 @@ function setup(
         if (opts.autoResolve) d.resolve(true);
       }),
     fadeSeconds: () => 8,
-    transition: (from, to, onDone) => {
+    transition: (from, to, onDone, topts) => {
       const t = {
         from,
         to,
+        mixOutSec: topts?.mixOutSec ?? null,
         cancelled: false,
         done: (cancelled = false) => {
           if (!cancelled) {
@@ -100,6 +113,7 @@ function setup(
     },
     setCrossfade: () => {},
     ...(opts.autoFill && { autoFill: opts.autoFill }),
+    ...(opts.glide && { glide: opts.glide }),
     ui: {
       status: (m) => statuses.push(m),
       renderQueue: () => {},
@@ -319,4 +333,124 @@ test("auto-fill waits until the playing track is nearly done", async () => {
   decks.A.currentTime = decks.A.duration - 35;
   mix.tick();
   assert.equal(picks, 1);
+});
+
+// ── Mix-out point ────────────────────────────────────────────────────
+
+async function playingWithNext(mixOutSec: number | null) {
+  const h = setup({ autoResolve: true });
+  h.decks.A.load(T("one")); // 200 s, beat 0.5 s → bar 2 s
+  h.decks.A.mixOutSec = mixOutSec;
+  h.decks.A.play();
+  await h.mix.start();
+  h.mix.enqueue(T("two"));
+  await flush();
+  return h;
+}
+
+test("with a mix-out point the transition starts there, a bar ahead, not near the end", async () => {
+  const { mix, decks, transitions } = await playingWithNext(150);
+  decks.A.currentTime = 147.9; // 2.1 s to go: more than a bar
+  mix.tick();
+  assert.equal(transitions.length, 0);
+  assert.ok(Math.abs(mix.secondsToMix! - 0.1) < 1e-6);
+  decks.A.currentTime = 148.1;
+  mix.tick();
+  assert.equal(transitions.length, 1);
+  assert.equal(transitions[0]!.mixOutSec, 150);
+});
+
+test("a mix-out point that already passed falls back to the end of the track", async () => {
+  const { mix, decks, transitions } = await playingWithNext(150);
+  decks.A.currentTime = 160; // the DJ jumped past it
+  mix.tick();
+  assert.equal(transitions.length, 0);
+  decks.A.currentTime = decks.A.duration - 9.9;
+  mix.tick();
+  assert.equal(transitions.length, 1);
+  assert.equal(transitions[0]!.mixOutSec, null);
+});
+
+test("a mix-out point with less than a bar left is ignored", async () => {
+  const { mix, decks, transitions } = await playingWithNext(199);
+  decks.A.currentTime = 185;
+  mix.tick();
+  assert.equal(transitions.length, 0, "not 14 s early on account of the point");
+  decks.A.currentTime = decks.A.duration - 9.9;
+  mix.tick();
+  assert.equal(transitions[0]!.mixOutSec, null);
+});
+
+test("Fade to next (a manual choice) goes now, not at the mix-out point", async () => {
+  const { mix, decks, transitions } = await playingWithNext(150);
+  decks.A.currentTime = 60;
+  await mix.fadeNow();
+  assert.equal(transitions.length, 1);
+  assert.equal(transitions[0]!.mixOutSec, null);
+});
+
+test("auto-fill counts down to the mix-out point, not the end", async () => {
+  let picks = 0;
+  const h = setup({ autoFill: () => T(`fill${++picks}`) });
+  h.decks.A.load(T("playing"));
+  h.decks.A.mixOutSec = 100;
+  h.decks.A.play();
+  await h.mix.start();
+  h.decks.A.currentTime = 60; // 40 s to the point (38 s to the trigger)
+  h.mix.tick();
+  assert.equal(picks, 0);
+  h.decks.A.currentTime = 75;
+  h.mix.tick();
+  assert.equal(picks, 1);
+});
+
+// ── Tempo drift ──────────────────────────────────────────────────────
+
+test("after a fade the new track glides back to its own tempo", async () => {
+  const glide = new TempoGlide();
+  const { mix, decks, transitions, advance } = setup({ autoResolve: true, glide });
+  decks.A.load(T("one"));
+  decks.A.play();
+  await mix.start();
+  mix.enqueue(T("two"));
+  await flush();
+  await mix.fadeNow();
+  decks.B.tempoPercent = 4; // synced to Deck A during the fade
+  transitions[0]!.done();
+  assert.equal(glide.state, "gliding");
+  advance(1000);
+  mix.tick();
+  assert.ok(decks.B.tempoPercent < 4 && decks.B.tempoPercent > 3.9, `${decks.B.tempoPercent}`);
+  advance(60_000); // 4 % → 16 bars of 2 s = 32 s
+  mix.tick();
+  assert.equal(decks.B.tempoPercent, 0);
+  assert.equal(glide.state, "idle");
+});
+
+test("the DJ touching the tempo, or the next transition, stops the glide", async () => {
+  const glide = new TempoGlide();
+  const { mix, decks, transitions, advance } = setup({ autoResolve: true, glide });
+  decks.A.load(T("one"));
+  decks.A.play();
+  await mix.start();
+  mix.enqueue(T("two"));
+  await flush();
+  await mix.fadeNow();
+  decks.B.tempoPercent = -6;
+  transitions[0]!.done();
+  advance(5000);
+  mix.tick();
+  decks.B.tempoPercent = 1.5; // by hand
+  advance(5000);
+  mix.tick();
+  assert.equal(decks.B.tempoPercent, 1.5);
+  assert.equal(glide.state, "idle");
+
+  // A new glide, interrupted by the next transition: tempo holds.
+  glide.start(decks.B, 10);
+  mix.enqueue(T("three"));
+  await flush();
+  await mix.fadeNow();
+  assert.equal(glide.state, "idle");
+  assert.equal(decks.B.tempoPercent, 1.5);
 });

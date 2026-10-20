@@ -67,6 +67,8 @@ const SCHEMA = [
      analyzer_version     SMALLINT     NOT NULL,
      analyzed_at          BIGINT       NOT NULL,
      beats_blob           MEDIUMBLOB   NOT NULL,
+     mix_out_index        INT          NOT NULL DEFAULT -1,
+     bars_blob            MEDIUMBLOB   NULL,
      PRIMARY KEY (user_id, track_id)
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // Created here so the schema is whole; populated by auth.
@@ -116,6 +118,14 @@ export function ensureSchema(pool: Db): Promise<void> {
         "plan",
         "VARCHAR(32) NOT NULL DEFAULT 'free'",
       );
+      // Mix-out point and per-bar downbeats (pass-the-beat analyzer v3).
+      await addColumnIfMissing(
+        pool,
+        "beat_grids",
+        "mix_out_index",
+        "INT NOT NULL DEFAULT -1",
+      );
+      await addColumnIfMissing(pool, "beat_grids", "bars_blob", "MEDIUMBLOB NULL");
     })();
     ready.set(pool, p);
   }

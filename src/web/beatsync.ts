@@ -104,18 +104,40 @@ export function beatIndexAfter(
   return lo >= beats.length ? -1 : lo;
 }
 
-/** Track time of the next downbeat strictly after `posSec`, or null. */
+/** One flag per beat: 1 when the beat starts a bar. From the sidecar's
+ *  per-bar downbeats when the grid has them (a bar of 3 or 5 beats moves
+ *  the later bars), else every 4th beat from `downbeatPhase`. Indices out
+ *  of range are ignored. */
+export function downbeatFlags(
+  beatCount: number,
+  downbeatPhase: 0 | 1 | 2 | 3,
+  barStarts?: ArrayLike<number> | null,
+): Uint8Array {
+  const flags = new Uint8Array(Math.max(0, beatCount));
+  if (barStarts && barStarts.length > 0) {
+    for (let k = 0; k < barStarts.length; k++) {
+      const i = barStarts[k];
+      if (i !== undefined && Number.isInteger(i) && i >= 0 && i < beatCount) flags[i] = 1;
+    }
+  } else {
+    for (let i = downbeatPhase; i < beatCount; i += 4) flags[i] = 1;
+  }
+  return flags;
+}
+
+/** Track time of the next downbeat strictly after `posSec`, or null.
+ *  `downbeats` (from {@link downbeatFlags}) wins over the phase. */
 export function nextDownbeatAfter(
   beats: ArrayLike<number>,
   posSec: number,
   downbeatPhase: 0 | 1 | 2 | 3,
+  downbeats?: ArrayLike<number> | null,
 ): number | null {
   let i = beatIndexAfter(beats, posSec);
   if (i < 0) return null;
   while (i < beats.length) {
-    if (((i % 4) as 0 | 1 | 2 | 3) === downbeatPhase) {
-      return beats[i] ?? null;
-    }
+    const down = downbeats ? downbeats[i] === 1 : i % 4 === downbeatPhase;
+    if (down) return beats[i] ?? null;
     i++;
   }
   return null;

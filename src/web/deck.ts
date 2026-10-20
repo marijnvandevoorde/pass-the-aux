@@ -1,6 +1,6 @@
 import type { DeckId, TrackInfo } from "./types.js";
 import { bitcrushCurve } from "./bitcrush.js";
-import { beatIndexAfter as pureBeatIndexAfter, gridBpm, nextDownbeatAfter as pureNextDownbeatAfter } from "./beatsync.js";
+import { beatIndexAfter as pureBeatIndexAfter, downbeatFlags, gridBpm, nextDownbeatAfter as pureNextDownbeatAfter } from "./beatsync.js";
 
 export type EqBand = "low" | "mid" | "high";
 
@@ -30,8 +30,15 @@ export class Deck {
   beats: Float32Array | null = null;
   /** Which (i % 4) in `beats` marks the bar's downbeat. */
   downbeatPhase: 0 | 1 | 2 | 3 = 0;
+  /** One flag per beat, 1 on a bar's downbeat: the sidecar's per-bar
+   *  downbeats, or every 4th beat from `downbeatPhase`. Null w/o grid. */
+  downbeats: Uint8Array | null = null;
   /** "Start the mix here" anchor in track seconds, or null when none. */
   firstSolidCueSec: number | null = null;
+  /** The analyser's mix-out point (the outro's phrase), or null. */
+  mixOutAutoSec: number | null = null;
+  /** A mix-out point the DJ set by hand; beats the automatic one. */
+  mixOutManualSec: number | null = null;
 
   /** Active loop region in buffer seconds (null = not set). */
   loopStartSec: number | null = null;
@@ -334,10 +341,36 @@ export class Deck {
     this.loopActive = false;
     this.hotCues.fill(null);
     this.peaks = computePeaks(decoded, 2000);
+    this.#clearGrid();
+    return decoded;
+  }
+
+  #clearGrid(): void {
     this.beats = null;
     this.downbeatPhase = 0;
+    this.downbeats = null;
     this.firstSolidCueSec = null;
-    return decoded;
+    this.mixOutAutoSec = null;
+    this.mixOutManualSec = null;
+  }
+
+  /** Where Automix should start the next track: the DJ's mix-out point,
+   *  else the analyser's, else null (fixed time before the end). */
+  get mixOutSec(): number | null {
+    return this.mixOutManualSec ?? this.mixOutAutoSec;
+  }
+
+  /** Set (or clear, with null) the mix-out point by hand. */
+  setManualMixOut(sec: number | null): void {
+    this.mixOutManualSec =
+      sec === null || !Number.isFinite(sec)
+        ? null
+        : Math.max(0, Math.min(sec, this.duration));
+  }
+
+  /** True when beat `i` of the grid starts a bar. */
+  isDownbeatIndex(i: number): boolean {
+    return this.downbeats ? this.downbeats[i] === 1 : i % 4 === this.downbeatPhase;
   }
 
   /** Apply a server-computed beat grid. Called after a
@@ -346,10 +379,17 @@ export class Deck {
     beats: ArrayLike<number>;
     downbeatPhase: 0 | 1 | 2 | 3;
     firstSolidCueSec: number | null;
+    mixOutCueSec?: number | null;
+    barStarts?: ArrayLike<number> | null;
   }): void {
     this.beats = new Float32Array(g.beats);
     this.downbeatPhase = g.downbeatPhase;
+    this.downbeats = downbeatFlags(this.beats.length, g.downbeatPhase, g.barStarts);
     this.firstSolidCueSec = g.firstSolidCueSec;
+    this.mixOutAutoSec =
+      typeof g.mixOutCueSec === "number" && Number.isFinite(g.mixOutCueSec)
+        ? g.mixOutCueSec
+        : null;
     // The grid is the authoritative tempo: the library BPM can be the
     // provisional one (or stale when the grid was built after the page
     // loaded). Tempo matching must use the same tempo the phase math
@@ -389,7 +429,7 @@ export class Deck {
   /** Track time of the next downbeat strictly after `posSec`, or null. */
   nextDownbeatAfter(posSec: number): number | null {
     return this.beats
-      ? pureNextDownbeatAfter(this.beats, posSec, this.downbeatPhase)
+      ? pureNextDownbeatAfter(this.beats, posSec, this.downbeatPhase, this.downbeats)
       : null;
   }
 
@@ -469,9 +509,7 @@ export class Deck {
     this.loopEndSec = null;
     this.loopActive = false;
     this.hotCues.fill(null);
-    this.beats = null;
-    this.downbeatPhase = 0;
-    this.firstSolidCueSec = null;
+    this.#clearGrid();
   }
 
   seek(seconds: number): void {

@@ -15,6 +15,7 @@ import type { EnrichLibrary } from "../../application/enrich-library.ts";
 import type { AnalyzeLibrary } from "../../application/analyze-library.ts";
 import type { BuildBeatGrids } from "../../application/build-beat-grids.ts";
 import type { GetBeatGrid } from "../../application/get-beat-grid.ts";
+import { mixOutCueSec } from "../../domain/beat-grid.ts";
 import type { Config } from "../../infrastructure/config.ts";
 import type { SessionStore } from "../../infrastructure/session-store.ts";
 import type { AuthService } from "../../application/auth-service.ts";
@@ -220,6 +221,10 @@ export function buildServer(
           grid.firstSolidBeatIndex >= 0
             ? grid.beats[grid.firstSolidBeatIndex] ?? null
             : null,
+        // Where Automix starts the next track (the outro's phrase), and
+        // every bar's downbeat; null when the analyzer had none.
+        mixOutCueSec: mixOutCueSec(grid),
+        barStarts: grid.barStarts ? Array.from(grid.barStarts) : null,
         confidence: grid.confidence,
       });
     },

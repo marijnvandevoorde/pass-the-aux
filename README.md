@@ -46,8 +46,13 @@ You can also drag audio files from your local drive onto the app: drop on a deck
   started on the audio clock exactly on the next beat or bar, and the
   next track is cued to its mix-in point (pass-the-beat's first solid
   downbeat) unless you set a cue on it yourself; your cue sticks for that
-  track. Auto-fill only picks a track when the queue is still empty near
-  the end of the playing one.
+  track. The automatic mix starts at the playing track's mix-out point
+  (pass-the-beat's outro phrase, orange on the waveform; Shift+click the
+  waveform to set your own) with the fade fitted to whole bars of the
+  outro, or a fade length before the end when there is none. After each
+  mix the new track glides back to its own tempo over a few phrases, so
+  the tempo doesn't drift over a night. Auto-fill only picks a track when
+  the queue is still empty near the mix.
 - **Crowd requests** — share a session as a QR code or link; guests open
   the `/crowd` page on their phones to add tracks straight to the queue.
 - **Extended search** — search across your configured remote record

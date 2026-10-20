@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  fitFadeToOutro,
   planFade,
   type IncomingState,
   type OutgoingState,
 } from "../../src/web/fade-to-next-plan.ts";
+import { downbeatFlags } from "../../src/web/beatsync.ts";
 
 const close = (a: number, b: number, eps = 1e-3): void =>
   assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -300,4 +302,85 @@ test("phase-snap: downbeat mode falls back to the nearest beat when no bar is ne
   assert.ok(plan);
   // → the nearest beat (10.5) instead of staying between beats.
   close(plan.incomingStartSec, 10.5);
+});
+
+// ── Per-bar downbeats ────────────────────────────────────────────────
+
+/** 120 BPM grid from 0 s; bars of 4 except one 3-beat bar at beat 8. */
+const ODD_BEATS = Array.from({ length: 64 }, (_, i) => i * 0.5);
+const ODD_BARS = [0, 4, 8, ...Array.from({ length: 13 }, (_, k) => 11 + 4 * k)];
+
+test("snap to the next bar follows the per-bar downbeats, not i % 4", () => {
+  const plan = planFade(
+    outgoing({
+      currentTime: 6.1, // beat 12.2
+      beats: ODD_BEATS,
+      downbeats: downbeatFlags(ODD_BEATS.length, 0, ODD_BARS),
+    }),
+    incoming(),
+    { snapTo: "downbeat", beatSync: false },
+  );
+  // Bars start on beats 11, 15, 19…: next is beat 15 (7.5 s); i % 4 would
+  // say beat 16 (8.0 s), a beat late.
+  close(plan!.snapAtSec, 7.5);
+});
+
+test("the incoming start lands on its per-bar downbeat", () => {
+  const plan = planFade(
+    outgoing({ baseBPM: 120 }),
+    incoming({
+      baseBPM: 120,
+      cuePoint: 7.4, // near beat 15 (7.5 s), a downbeat after the odd bar
+      beats: ODD_BEATS,
+      downbeats: downbeatFlags(ODD_BEATS.length, 0, ODD_BARS),
+    }),
+    { snapTo: "downbeat", beatSync: false },
+  );
+  close(plan!.incomingStartSec, 7.5);
+});
+
+test("downbeatFlags falls back to the phase without bars", () => {
+  assert.deepEqual(Array.from(downbeatFlags(9, 1)), [0, 1, 0, 0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(Array.from(downbeatFlags(6, 0, [0, 3, 99])), [1, 0, 0, 1, 0, 0]);
+});
+
+// ── Mix-out point ────────────────────────────────────────────────────
+
+test("fitFadeToOutro picks whole bars near the wanted length that fit", () => {
+  // 120 BPM: a bar is 2 s.
+  close(fitFadeToOutro(8, 100, 200, 0.5)!, 8); // 4 bars
+  close(fitFadeToOutro(13, 100, 200, 0.5)!, 16); // 8 bars is nearer than 4
+  close(fitFadeToOutro(8, 100, 105, 0.5)!, 4); // only 2 bars left
+  close(fitFadeToOutro(8, 100, 200, 0.5, 1.04)!, 8 / 1.04); // played 4 % faster
+  assert.equal(fitFadeToOutro(8, 100, 101.5, 0.5), null); // not one bar
+});
+
+test("plans the transition at the mix-out point, fade fitted to the outro", () => {
+  const plan = planFade(
+    outgoing({ currentTime: 148, durationSec: 160, beats: null, baseBPM: 120 }),
+    incoming({ baseBPM: 120 }),
+    { snapTo: "downbeat", beatSync: true, mixOutSec: 150, fadeSec: 30 },
+  );
+  assert.ok(plan);
+  assert.equal(plan.atMixOut, true);
+  close(plan.snapAtSec, 150);
+  close(plan.waitMs, 2000);
+  close(plan.fadeSec, 8); // 30 s wanted, 10 s left: 4 bars
+  assert.match(plan.status, /mix-out point/);
+});
+
+test("a passed or unfittable mix-out point plans as usual", () => {
+  const passed = planFade(
+    outgoing({ currentTime: 151, durationSec: 160 }),
+    incoming(),
+    { snapTo: "downbeat", beatSync: false, mixOutSec: 150, fadeSec: 8 },
+  );
+  assert.equal(passed!.atMixOut, false);
+  assert.equal(passed!.fadeSec, 8);
+  const noRoom = planFade(
+    outgoing({ currentTime: 148, durationSec: 151 }),
+    incoming(),
+    { snapTo: "downbeat", beatSync: false, mixOutSec: 150, fadeSec: 8 },
+  );
+  assert.equal(noRoom!.atMixOut, false);
 });
