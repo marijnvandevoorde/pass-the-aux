@@ -11,7 +11,8 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "UNAUTHORIZED"
   | "PLAN_REQUIRED"
-  | "ANALYZER_UNAVAILABLE";
+  | "ANALYZER_UNAVAILABLE"
+  | "TRACK_ANALYSIS_FAILED";
 
 /** Base class for expected, domain-level failures (mapped to HTTP status by the interface layer). */
 export class DomainError extends Error {
@@ -113,5 +114,14 @@ export class PlanRequiredError extends DomainError {
 export class AnalyzerUnavailableError extends DomainError {
   constructor(message = "audio analyzer unavailable") {
     super(message, "ANALYZER_UNAVAILABLE");
+  }
+}
+
+/** The analyzer is up but failed on this one track for a reason that may
+ *  not repeat (a crash, out of memory). Not stored as a result; the track
+ *  is retried on a later run. */
+export class TrackAnalysisFailedError extends DomainError {
+  constructor(message = "analysis failed for this track") {
+    super(message, "TRACK_ANALYSIS_FAILED");
   }
 }

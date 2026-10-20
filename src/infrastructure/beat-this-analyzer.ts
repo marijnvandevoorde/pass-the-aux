@@ -1,6 +1,9 @@
 import { Readable } from "node:stream";
 import { BEATTHIS_ANALYZER_VERSION } from "../domain/beat-grid.ts";
-import { AnalyzerUnavailableError } from "../domain/errors.ts";
+import {
+  AnalyzerUnavailableError,
+  TrackAnalysisFailedError,
+} from "../domain/errors.ts";
 import type {
   AnalyzedBeats,
   AudioAnalyzer,
@@ -19,6 +22,9 @@ interface AnalyzeResponse {
   confidence: number;
   duration: number;
   firstSolidBeat: number;
+  /** Whole-track bar phase (pass-the-beat ≥ analyzerVersion 2). Older
+   *  sidecars omit it. */
+  downbeatPhase: 0 | 1 | 2 | 3 | null;
 }
 
 export interface BeatThisAnalyzerOptions {
@@ -81,12 +87,15 @@ export class BeatThisAnalyzer implements AudioAnalyzer {
       if (res === null) return emptyGrid(trackId, 0); // undecodable: final
       if (res.beats.length === 0) return emptyGrid(trackId, res.duration);
 
-      // pass-the-beat emits explicit per-beat downbeats; the browser still
-      // models a rigid 4/4 grid (`downbeatPhase`), so collapse to the
-      // phase of the first downbeat. Faithful for 4/4 dance music — the
-      // explicit downbeat array is a deliberate future enhancement.
+      // The browser models a rigid 4/4 grid (`downbeatPhase`). Newer
+      // sidecars send the whole-track bar phase (a majority vote over all
+      // downbeats); older ones only the downbeats, so fall back to the
+      // phase of the first one, which is wrong when that one is an
+      // outlier.
       const firstDownbeat = res.downbeatIndices[0] ?? 0;
-      const downbeatPhase = (((firstDownbeat % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+      const downbeatPhase =
+        res.downbeatPhase ??
+        ((((firstDownbeat % 4) + 4) % 4) as 0 | 1 | 2 | 3);
 
       return {
         trackId,
@@ -126,9 +135,15 @@ export class BeatThisAnalyzer implements AudioAnalyzer {
         `pass-the-beat unreachable: ${(e as Error).message}`,
       );
     }
-    if (res.status >= 400 && res.status <= 500 && res.status !== 404 && res.status !== 408 && res.status !== 429) {
-      // 422 undecodable, 413 too big, 500 the model failed on this input:
-      // properties of the file, so retrying would only fail again.
+    if (res.status === 500) {
+      // The sidecar crashed on this track (a bug, out of memory): may not
+      // repeat, so don't record it as "no grid"; BuildBeatGrids retries.
+      await res.body?.cancel();
+      throw new TrackAnalysisFailedError(`pass-the-beat HTTP 500 for ${trackId}`);
+    }
+    if (res.status >= 400 && res.status < 500 && res.status !== 404 && res.status !== 408 && res.status !== 429) {
+      // 422 undecodable, 413 too big: properties of the file, so retrying
+      // would only fail again.
       await res.body?.cancel();
       return null;
     }
@@ -185,5 +200,12 @@ function parseAnalyze(json: unknown): AnalyzeResponse | null {
     duration: typeof j["duration"] === "number" ? j["duration"] : 0,
     firstSolidBeat:
       typeof j["firstSolidBeat"] === "number" ? j["firstSolidBeat"] : -1,
+    downbeatPhase:
+      j["downbeatPhase"] === 0 ||
+      j["downbeatPhase"] === 1 ||
+      j["downbeatPhase"] === 2 ||
+      j["downbeatPhase"] === 3
+        ? j["downbeatPhase"]
+        : null,
   };
 }

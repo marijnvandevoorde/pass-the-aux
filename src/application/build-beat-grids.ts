@@ -19,7 +19,15 @@ import { AnalyzerUnavailableError } from "../domain/errors.ts";
  * run stops early and nothing is stored, so a track is never left with
  * a fallback result marked as done.
  */
+/** Per-track failures (the analyzer crashed on it) before the track is
+ *  stored as "no grid" so it stops being retried. */
+const MAX_TRACK_FAILURES = 3;
+
 export class BuildBeatGrids {
+  /** Failures per track since this process started. Tracks that failed
+   *  go to the back of the next run, so one track that keeps timing out
+   *  or crashing the sidecar can't hold up the rest of the library. */
+  readonly #strikes = new Map<string, number>();
   readonly #analyses: AnalysisRepository;
   readonly #grids: BeatGridRepository;
   readonly #analyzer: AudioAnalyzer;
@@ -43,7 +51,9 @@ export class BuildBeatGrids {
     unavailable: boolean;
   }> {
     const all = await this.#analyses.all(this.#userId);
-    const rows = Object.keys(all);
+    const strikes = (id: string): number => this.#strikes.get(id) ?? 0;
+    // Stable sort: library order, previously failing tracks last.
+    const rows = Object.keys(all).sort((a, b) => strikes(a) - strikes(b));
     let built = 0;
     for (const id of rows) {
       try {
@@ -67,13 +77,30 @@ export class BuildBeatGrids {
           await this.#analyses.put(this.#userId, id, { ...rest, bpm: measured });
         }
         built++;
+        this.#strikes.delete(id);
       } catch (e) {
+        const n = strikes(id) + 1;
+        this.#strikes.set(id, n);
         // Engine down: the rest would fail the same way. Stop; the next
-        // sweep picks up where this one left off.
+        // sweep tries the others first and this track last.
         if (e instanceof AnalyzerUnavailableError) {
           return { scanned: rows.length, built, unavailable: true };
         }
-        // otherwise per-track best-effort; next sweep retries
+        // Per-track failure: retried on later sweeps, until it has failed
+        // too often to be a fluke; then record "no grid" so it stops
+        // costing an upload every sweep.
+        if (n >= MAX_TRACK_FAILURES) {
+          await this.#grids.put(this.#userId, {
+            trackId: id,
+            durationSec: 0,
+            beats: new Float32Array(0),
+            downbeatPhase: 0,
+            firstSolidBeatIndex: -1,
+            confidence: 0,
+            analyzerVersion: this.#analyzer.beatAnalyzerVersion,
+          });
+          this.#strikes.delete(id);
+        }
       }
     }
     return { scanned: rows.length, built, unavailable: false };

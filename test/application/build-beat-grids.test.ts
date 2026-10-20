@@ -17,7 +17,10 @@ import type {
   AudioAnalyzer,
   AudioFeatures,
 } from "../../src/domain/ports/audio-analyzer.ts";
-import { AnalyzerUnavailableError } from "../../src/domain/errors.ts";
+import {
+  AnalyzerUnavailableError,
+  TrackAnalysisFailedError,
+} from "../../src/domain/errors.ts";
 import { GetBeatGrid } from "../../src/application/get-beat-grid.ts";
 
 function fakeAnalyses(rows: string[]): AnalysisRepository & {
@@ -201,4 +204,34 @@ test("an empty grid is stored (not retried) but served as 'no grid'", async () =
   assert.equal(calls, 1);
   assert.equal(await grids.has("u1", "a.mp3"), true);
   assert.equal(await new GetBeatGrid(grids, "u1").execute("a.mp3"), null);
+});
+
+test("a track that keeps making the analyzer unavailable goes to the back of the next run", async () => {
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3", "c.mp3"]);
+  const grids = fakeGrids();
+  const order: string[] = [];
+  const analyzer = fakeAnalyzer((id) => {
+    order.push(id);
+    if (id === "a.mp3") throw new AnalyzerUnavailableError();
+    return dummyGrid(id);
+  });
+  const uc = new BuildBeatGrids(analyses, grids, analyzer, "u1");
+  await uc.execute(); // stops on a.mp3
+  const r = await uc.execute(); // b, c first, then a again
+  assert.deepEqual(order, ["a.mp3", "b.mp3", "c.mp3", "a.mp3"]);
+  assert.equal(r.built, 2);
+});
+
+test("a per-track failure is retried, and stored as 'no grid' only after 3", async () => {
+  const analyses = fakeAnalyses(["a.mp3"]);
+  const grids = fakeGrids();
+  const analyzer = fakeAnalyzer(() => {
+    throw new TrackAnalysisFailedError();
+  });
+  const uc = new BuildBeatGrids(analyses, grids, analyzer, "u1");
+  await uc.execute();
+  await uc.execute();
+  assert.equal(await grids.has("u1", "a.mp3"), false);
+  await uc.execute();
+  assert.equal(grids.store.get("u1::a.mp3")?.beats.length, 0);
 });

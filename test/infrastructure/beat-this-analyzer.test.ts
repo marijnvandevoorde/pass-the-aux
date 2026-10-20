@@ -6,6 +6,7 @@ import type { WorkerLease } from "../../src/infrastructure/beat-this-analyzer.ts
 import { BEATTHIS_ANALYZER_VERSION } from "../../src/domain/beat-grid.ts";
 import {
   AnalyzerUnavailableError,
+  TrackAnalysisFailedError,
   TrackNotFoundError,
 } from "../../src/domain/errors.ts";
 import type { AudioSource } from "../../src/domain/ports/audio-source.ts";
@@ -159,7 +160,23 @@ test("503 (model loading) → AnalyzerUnavailableError", async () => {
   );
 });
 
-for (const status of [422, 500]) {
+test("downbeatPhase from a newer sidecar wins over the first downbeat", async () => {
+  const { fetchImpl } = stub(() =>
+    okResponse({ ...SAMPLE, downbeatIndices: [0, 5, 9, 13], downbeatPhase: 1 }),
+  );
+  const grid = await analyzer(fetchImpl).analyzeBeats("s.mp3");
+  assert.equal(grid?.downbeatPhase, 1);
+});
+
+test("500 (the sidecar crashed on this track) → retryable, not stored as final", async () => {
+  const { fetchImpl } = stub(() => new Response("boom", { status: 500 }));
+  await assert.rejects(
+    analyzer(fetchImpl).analyzeBeats("s.mp3"),
+    TrackAnalysisFailedError,
+  );
+});
+
+for (const status of [422]) {
   test(`${status} (the file itself) → an empty grid, stored as final`, async () => {
     const { fetchImpl } = stub(() => new Response("bad", { status }));
     const grid = await analyzer(fetchImpl).analyzeBeats("s.mp3");
