@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script src="/consent.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b0b12" />
     <title>Pass the Aux — sign in</title>
@@ -71,6 +72,8 @@
       button.primary:disabled { opacity: 0.5; cursor: default; }
       .switch { margin-top: 16px; text-align: center; font-size: 13px; color: var(--dim); }
       .switch a { color: var(--accent); cursor: pointer; }
+      .legal { margin: 20px 0 0; text-align: center; font-size: 12px; color: var(--dim); }
+      .legal a { color: var(--dim); }
       .msg { margin-top: 14px; font-size: 13px; min-height: 18px; }
       .msg.err { color: var(--warn); }
       .msg.ok { color: var(--accent); }
@@ -178,6 +181,7 @@
         <button class="ghost" id="en-skip">Yolo, no MFA for me!</button>
         <div class="msg" id="en-msg"></div>
       </section>
+      <p class="legal"><a href="/privacy">Privacy</a> · <a href="#" data-consent-open>Cookie settings</a></p>
     </div>
     <script type="module" src="js/login.js"></script>
   </body>

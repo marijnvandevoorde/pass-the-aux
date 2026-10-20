@@ -52,6 +52,8 @@ test("auth gate: register → confirm → access; public stays open", async () =
     assert.equal((await fetch(`${s.base}/api/crates`)).status, 401);
     assert.equal((await fetch(`${s.base}/crowd?s=x`)).status, 200);
     assert.equal((await fetch(`${s.base}/login`)).status, 200);
+    assert.equal((await fetch(`${s.base}/privacy`)).status, 200);
+    assert.equal((await fetch(`${s.base}/consent.js`)).status, 200);
 
     // Register.
     const reg = await fetch(`${s.base}/api/auth/register`, {

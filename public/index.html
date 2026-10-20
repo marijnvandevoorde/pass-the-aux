@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script src="/consent.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script>if(matchMedia('(max-width:768px)').matches){location.replace('/mobile'+location.search);}</script>
     <title>Pass the Aux</title>
@@ -374,6 +375,8 @@
           Library
         </button>
         <div class="qs-foot">
+          <a class="qs-link" href="/privacy" target="_blank" rel="noopener">Privacy</a>
+          <a class="qs-link" href="#" data-consent-open>Cookie settings</a>
           <span id="app-version" title="Build stamp — confirms you're on the latest deploy">v{{APP_VERSION}}</span>
         </div>
       </aside>

@@ -358,6 +358,14 @@ source).
 Remote record stores are configured per-user in **Settings → Remote
 record stores** — there is no env-driven seed.
 
+### Analytics and consent
+
+`public/consent.js`, loaded first in the `<head>` of every page, sets Google Consent Mode v2
+defaults to denied, loads Google Tag Manager (`GTM_ID` at the top of that file; empty means
+nothing loads) and shows a cookie banner. Accept grants `analytics_storage` only. The GA4 tag
+is configured in the GTM container. Never push track, artist or music-service data to the
+dataLayer or into page titles. The privacy page is `public/privacy.html` (`/privacy`).
+
 ## Development
 
 ```bash

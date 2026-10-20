@@ -1500,6 +1500,11 @@ select.r-q {
   min-height: 32px;
 }
 
+.qs-link {
+  font-size: 11px;
+  color: var(--dim);
+}
+
 #app-version {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

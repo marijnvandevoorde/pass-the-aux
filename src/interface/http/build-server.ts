@@ -441,6 +441,10 @@ export function buildServer(
       await serveStatic(res, "/party-mode-prototype.html", PUBLIC_DIR);
     },
 
+    "GET /privacy": async (_req, res) => {
+      await serveStatic(res, "/privacy.html", PUBLIC_DIR);
+    },
+
     // ── Auth / 2FA ──────────────────────────────────────
     "GET /login": async (_req, res, _url, ctx) => {
       await serveStatic(res, "/login.html", PUBLIC_DIR);
