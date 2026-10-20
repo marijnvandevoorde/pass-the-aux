@@ -16,7 +16,8 @@ name: pass-the-aux-db
 
 services:
   pass-the-aux-mysql:
-    image: mysql:9.6
+    # Tracks prod (HeatWave, 26.7). An 8.4 data dir will not start on 26.x: wipe it (down -v).
+    image: mysql:26.7
     container_name: pass-the-aux-mysql
     command: --innodb-buffer-pool-size=64M
     environment:

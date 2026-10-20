@@ -233,7 +233,7 @@ services:
   # (Mirrors docker-compose.mysql.yml; add a `ports:` mapping if you
   # want to reach the DB from the host.)
   mysql:
-    image: mysql:8.4
+    image: mysql:26.7
     command: --innodb-buffer-pool-size=128M
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
