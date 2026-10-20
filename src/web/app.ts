@@ -10,6 +10,7 @@ import {
   type TransitionHandle,
 } from "./fade-to-next.js";
 import { CueMemory, mixInPoint } from "./cue-memory.js";
+import { TempoGlide } from "./tempo-glide.js";
 import { api } from "./api.js";
 import { SessionHistory } from "./session-history.js";
 import { pickNext, type FeatureTrack } from "./auto-select.js";
@@ -74,6 +75,27 @@ const cueMemory = (() => {
     return new CueMemory();
   }
 })();
+/** Mix-out points the DJ set by hand (Shift+click on the waveform), per
+ *  track; they beat the analyser's. Same store shape as the cues. */
+const MIX_OUT_MEMORY_KEY = "passtheaux.manualMixOuts";
+const mixOutMemory = (() => {
+  try {
+    return CueMemory.parse(localStorage.getItem(MIX_OUT_MEMORY_KEY));
+  } catch {
+    return new CueMemory();
+  }
+})();
+function rememberManualMixOut(deck: Deck): void {
+  const key = deck.track?.path ?? deck.track?.id;
+  if (deck.mixOutManualSec === null) mixOutMemory.delete(key);
+  else mixOutMemory.set(key, deck.mixOutManualSec);
+  try {
+    localStorage.setItem(MIX_OUT_MEMORY_KEY, mixOutMemory.serialize());
+  } catch {
+    /* storage full / disabled — non-fatal */
+  }
+}
+
 function rememberManualCue(deck: Deck): void {
   const key = deck.track?.path ?? deck.track?.id;
   cueMemory.set(key, deck.cuePoint);
@@ -99,6 +121,24 @@ function applyAutoCue(id: DeckId): void {
   if (deck.setAutoCue(t)) {
     setStatus(`Deck ${id} cued to the mix-in point (${fmtTime(t)}) — set your own cue to override`);
   }
+}
+
+/** The downbeat nearest to `sec` (within half a bar), or null without a
+ *  grid. */
+function nearestDownbeat(deck: Deck, sec: number): number | null {
+  const beats = deck.beats;
+  const beatLen = deck.beatLengthSec;
+  if (!beats || beats.length === 0 || beatLen === null || beatLen <= 0) return null;
+  let best: number | null = null;
+  for (let i = 0; i < beats.length; i++) {
+    const t = beats[i];
+    if (t === undefined || !deck.isDownbeatIndex(i)) continue;
+    if (Math.abs(t - sec) <= 2 * beatLen && (best === null || Math.abs(t - sec) < Math.abs(best - sec))) {
+      best = t;
+    }
+    if (t > sec + 2 * beatLen) break;
+  }
+  return best;
 }
 
 function fmtTime(s: number): string {
@@ -232,11 +272,12 @@ must<HTMLButtonElement>("#start-btn").addEventListener("click", async () => {
     decks,
     loadToDeck,
     fadeSeconds,
-    transition: (from, to, onDone) =>
+    transition: (from, to, onDone, topts) =>
       startTransition(mixer, decks[from], decks[to], {
         durationSec: fadeSeconds(),
         beatSync: automix.beatSync,
         snapTo,
+        mixOutSec: topts?.mixOutSec ?? null,
         onStatus: amStatus,
         onCrossfade: (pos) => {
           must<HTMLInputElement>("#xfader").value = String(pos);
@@ -245,6 +286,7 @@ must<HTMLButtonElement>("#start-btn").addEventListener("click", async () => {
       }),
     setCrossfade: (pos) => mixer.setCrossfade(pos),
     autoFill: autoFillPick,
+    glide: new TempoGlide(),
     ui: {
       status: amStatus,
       renderQueue: renderQueue,
@@ -539,13 +581,11 @@ async function loadToDeck(track: TrackInfo, deckId: DeckId): Promise<boolean> {
   setDeckName(deckId, track.name + (track.path ? "" : " (local)"));
   const manual = cueMemory.get(track.path ?? track.id);
   if (manual !== null) deck.setManualCue(manual);
+  const manualOut = mixOutMemory.get(track.path ?? track.id);
+  if (manualOut !== null) deck.setManualMixOut(manualOut);
   void gridP.then((g) => {
     if (!g || !deck.isCurrentLoad(token)) return;
-    deck.applyBeatGrid({
-      beats: g.beats,
-      downbeatPhase: g.downbeatPhase,
-      firstSolidCueSec: g.firstSolidCueSec,
-    });
+    deck.applyBeatGrid(g);
     // The grid can land after the track was queued / preloaded: preset
     // the mix-in cue now.
     applyAutoCue(deckId);
@@ -912,6 +952,21 @@ function wireDeck(id: DeckId): void {
     if (!deck.buffer) return;
     const w = canvas.clientWidth;
     let target = (e.offsetX / w) * deck.duration;
+    if (e.shiftKey) {
+      // Shift+click: the DJ's own mix-out point (snapped to the nearest
+      // downbeat), where Automix brings in the next track. Shift+click on
+      // the marker again clears it back to the analyser's.
+      const cur = deck.mixOutManualSec;
+      if (cur !== null && Math.abs(e.offsetX - (cur / deck.duration) * w) <= 10) {
+        deck.setManualMixOut(null);
+        setStatus(`Deck ${id} mix-out back to ${deck.mixOutSec === null ? "the end of the track" : `the outro (${fmtTime(deck.mixOutSec)})`}`);
+      } else {
+        deck.setManualMixOut(nearestDownbeat(deck, target) ?? target);
+        setStatus(`Deck ${id} mix-out set @ ${fmtTime(deck.mixOutSec ?? target)} — Automix brings the next track in here`);
+      }
+      rememberManualMixOut(deck);
+      return;
+    }
     // Near the "first solid cue" marker: snap to the nearest kick
     // (downbeat) on the actual beat grid rather than the raw marker —
     // the analyser-derived first-solid point isn't always exactly on a
@@ -929,13 +984,12 @@ function wireDeck(id: DeckId): void {
           // to where the user actually clicked, never more than 2 beats
           // away.
           const halfBar = 2 * beatLen;
-          const phase = deck.downbeatPhase;
           let nearest: number | null = null;
           let nearestDist = Infinity;
           for (let i = 0; i < beats.length; i++) {
             const t = beats[i];
             if (t === undefined) continue;
-            if ((i % 4) !== phase) continue;
+            if (!deck.isDownbeatIndex(i)) continue;
             const d = Math.abs(t - target);
             if (d <= halfBar && d < nearestDist) {
               nearestDist = d;
@@ -2775,11 +2829,7 @@ function retryMissingGrids(): void {
     const token = deck.currentLoadToken();
     void api.getBeatGrid(path).then((g) => {
       if (!g || !deck.isCurrentLoad(token) || deck.track?.path !== path) return;
-      deck.applyBeatGrid({
-        beats: g.beats,
-        downbeatPhase: g.downbeatPhase,
-        firstSolidCueSec: g.firstSolidCueSec,
-      });
+      deck.applyBeatGrid(g);
       applyAutoCue(id);
     });
   }
@@ -2878,6 +2928,17 @@ function drawWave(deck: Deck, canvas: HTMLCanvasElement, id: DeckId): void {
       g.fillRect(sx - 1, h * 0.08, 2, h * 0.84);
       g.fillRect(sx - 4, h * 0.08, 9, 2);
       g.fillRect(sx - 4, h * 0.92 - 2, 9, 2);
+    }
+    const out = deck.mixOutSec;
+    if (out !== null) {
+      // Orange: where Automix starts the next track (solid when the DJ
+      // set it, dimmer for the analyser's outro point).
+      const ox = (out / deck.duration) * w;
+      g.fillStyle =
+        deck.mixOutManualSec !== null ? "rgba(255,146,64,0.95)" : "rgba(255,146,64,0.6)";
+      g.fillRect(ox - 1, h * 0.08, 2, h * 0.84);
+      g.fillRect(ox - 8, h * 0.08, 9, 2);
+      g.fillRect(ox - 8, h * 0.92 - 2, 9, 2);
     }
     const cx = (deck.cuePoint / deck.duration) * w;
     g.fillStyle = "#ffd34d";

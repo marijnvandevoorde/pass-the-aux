@@ -1,5 +1,8 @@
 import { Readable } from "node:stream";
-import { BEATTHIS_ANALYZER_VERSION } from "../domain/beat-grid.ts";
+import {
+  BEATTHIS_ANALYZER_VERSION,
+  validBarStarts,
+} from "../domain/beat-grid.ts";
 import {
   AnalyzerUnavailableError,
   TrackAnalysisFailedError,
@@ -25,6 +28,10 @@ interface AnalyzeResponse {
   /** Whole-track bar phase (pass-the-beat ≥ analyzerVersion 2). Older
    *  sidecars omit it. */
   downbeatPhase: 0 | 1 | 2 | 3 | null;
+  /** Every bar's downbeat (pass-the-beat ≥ analyzerVersion 3). */
+  barStarts: number[] | null;
+  /** Mix-out downbeat index or -1 (pass-the-beat ≥ analyzerVersion 3). */
+  mixOutBeat: number;
 }
 
 export interface BeatThisAnalyzerOptions {
@@ -102,7 +109,16 @@ export class BeatThisAnalyzer implements AudioAnalyzer {
         durationSec: res.duration,
         beats: Float32Array.from(res.beats),
         downbeatPhase,
+        // Per-bar downbeats when the sidecar sends them (v3); a malformed
+        // list is dropped so the browser falls back to the phase.
+        barStarts: validBarStarts(res.barStarts, res.beats.length),
         firstSolidBeatIndex: res.firstSolidBeat,
+        mixOutBeatIndex:
+          Number.isInteger(res.mixOutBeat) &&
+          res.mixOutBeat >= 0 &&
+          res.mixOutBeat < res.beats.length
+            ? res.mixOutBeat
+            : -1,
         confidence: res.confidence,
         analyzerVersion: BEATTHIS_ANALYZER_VERSION,
         bpm: res.bpm,
@@ -176,7 +192,9 @@ function emptyGrid(trackId: string, durationSec: number): AnalyzedBeats {
     durationSec,
     beats: new Float32Array(0),
     downbeatPhase: 0,
+    barStarts: null,
     firstSolidBeatIndex: -1,
+    mixOutBeatIndex: -1,
     confidence: 0,
     analyzerVersion: BEATTHIS_ANALYZER_VERSION,
     bpm: null,
@@ -207,5 +225,7 @@ function parseAnalyze(json: unknown): AnalyzeResponse | null {
       j["downbeatPhase"] === 3
         ? j["downbeatPhase"]
         : null,
+    barStarts: Array.isArray(j["barStarts"]) ? numbers(j["barStarts"]) : null,
+    mixOutBeat: typeof j["mixOutBeat"] === "number" ? j["mixOutBeat"] : -1,
   };
 }

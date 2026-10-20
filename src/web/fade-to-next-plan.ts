@@ -27,6 +27,11 @@ export interface OutgoingState {
   cuePoint: number;
   beats: ArrayLike<number> | null;
   downbeatPhase: 0 | 1 | 2 | 3;
+  /** One flag per beat (1 = bar start), from the per-bar downbeats.
+   *  Wins over `downbeatPhase` when present. */
+  downbeats?: ArrayLike<number> | null;
+  /** Track length in seconds; needed to fit a fade into the outro. */
+  durationSec?: number;
 }
 
 export interface IncomingState {
@@ -38,6 +43,8 @@ export interface IncomingState {
   beats: ArrayLike<number> | null;
   /** Which (i % 4) in `beats` marks the bar's downbeat. */
   downbeatPhase: 0 | 1 | 2 | 3;
+  /** One flag per beat (1 = bar start); wins over `downbeatPhase`. */
+  downbeats?: ArrayLike<number> | null;
 }
 
 export interface PlanOpts {
@@ -45,6 +52,14 @@ export interface PlanOpts {
   beatSync: boolean;
   /** Outgoing-track lead time below which we step to the next candidate. */
   minLeadSec?: number;
+  /** Start the transition exactly here (outgoing track seconds): the
+   *  mix-out point. Ignored when it has already passed or no fade of at
+   *  least one bar fits between it and the end of the track; the plan
+   *  then snaps as usual. */
+  mixOutSec?: number | null;
+  /** Wanted fade length in seconds. At the mix-out point it is fitted to
+   *  whole bars of the outro; otherwise returned unchanged. */
+  fadeSec?: number;
 }
 
 export interface FadePlan {
@@ -52,7 +67,41 @@ export interface FadePlan {
   waitMs: number;
   incomingStartSec: number;
   tempoSyncTarget: number | null;
+  /** Fade length in seconds (real time). */
+  fadeSec: number;
+  /** True when the transition starts at the mix-out point. */
+  atMixOut: boolean;
   status: string;
+}
+
+/** Fade lengths tried at the mix-out point, in bars: whole phrases and
+ *  their halves, so the fade ends on a phrase boundary of the outro. */
+const FADE_BARS = [1, 2, 4, 8, 16, 32];
+
+/**
+ * Fade length (real seconds) for a transition that starts at `startSec`
+ * of a track `durationSec` long: the number of bars from {@link FADE_BARS}
+ * closest to `wantedSec` that still ends before the track does (a quarter
+ * beat of margin). Null when not even one bar fits.
+ */
+export function fitFadeToOutro(
+  wantedSec: number,
+  startSec: number,
+  durationSec: number,
+  beatLenSec: number,
+  rate = 1,
+): number | null {
+  if (!(beatLenSec > 0) || !(durationSec > startSec)) return null;
+  const r = rate > 0 ? rate : 1;
+  const barReal = (4 * beatLenSec) / r;
+  const roomReal = (durationSec - startSec - beatLenSec / 4) / r;
+  let best: number | null = null;
+  for (const bars of FADE_BARS) {
+    const len = bars * barReal;
+    if (len > roomReal) break;
+    if (best === null || Math.abs(len - wantedSec) < Math.abs(best - wantedSec)) best = len;
+  }
+  return best;
 }
 
 /** Nearest power-of-two multiple of `refBpm` to `inBpm`. */
@@ -77,15 +126,25 @@ function nextBeatAtOrAfter(
   return null;
 }
 
+/** Is beat `i` a bar's downbeat: per-bar flags when present, else `i % 4`. */
+function onDownbeat(
+  i: number,
+  phase: 0 | 1 | 2 | 3,
+  downbeats: ArrayLike<number> | null | undefined,
+): boolean {
+  return downbeats ? downbeats[i] === 1 : i % 4 === phase;
+}
+
 function nextDownbeatAtOrAfter(
   beats: ArrayLike<number>,
   posSec: number,
   phase: 0 | 1 | 2 | 3,
+  downbeats?: ArrayLike<number> | null,
 ): number | null {
   for (let i = 0; i < beats.length; i++) {
     const t = beats[i];
     if (t === undefined || t < posSec) continue;
-    if (((i % 4) as 0 | 1 | 2 | 3) === phase) return t;
+    if (onDownbeat(i, phase, downbeats)) return t;
   }
   return null;
 }
@@ -101,14 +160,42 @@ export function planFade(
   const minLead = opts.minLeadSec ?? 0.08;
   const now = outgoing.currentTime;
   const minSnap = now + minLead;
+  const outRate = outgoing.rate > 0 ? outgoing.rate : 1;
 
+  // The mix-out point: start there, with the fade fitted to whole bars of
+  // the outro, unless it has passed or no bar fits before the end.
   let snapAtSec: number | null = null;
-  if (outgoing.beats && outgoing.beats.length > 0) {
+  let fadeSec = opts.fadeSec ?? 0;
+  let atMixOut = false;
+  const outBeatLen =
+    outgoing.baseBPM && outgoing.baseBPM > 0 ? 60 / outgoing.baseBPM : 0;
+  if (
+    opts.mixOutSec != null &&
+    Number.isFinite(opts.mixOutSec) &&
+    opts.mixOutSec >= minSnap &&
+    outgoing.durationSec !== undefined
+  ) {
+    const fitted = fitFadeToOutro(
+      opts.fadeSec ?? 0,
+      opts.mixOutSec,
+      outgoing.durationSec,
+      outBeatLen,
+      outgoing.tempoRate ?? outRate,
+    );
+    if (fitted !== null) {
+      snapAtSec = opts.mixOutSec;
+      fadeSec = fitted;
+      atMixOut = true;
+    }
+  }
+
+  if (snapAtSec === null && outgoing.beats && outgoing.beats.length > 0) {
     if (opts.snapTo === "downbeat") {
       snapAtSec = nextDownbeatAtOrAfter(
         outgoing.beats,
         minSnap,
         outgoing.downbeatPhase,
+        outgoing.downbeats,
       );
     }
     if (snapAtSec === null) {
@@ -126,8 +213,7 @@ export function planFade(
     }
   }
 
-  const rate = outgoing.rate > 0 ? outgoing.rate : 1;
-  const waitMs = Math.max(0, ((snapAtSec - now) / rate) * 1000);
+  const waitMs = Math.max(0, ((snapAtSec - now) / outRate) * 1000);
 
   // Anchor the incoming start on the user's cue (or 1 s when nothing
   // is cued — skips any leading silence/click without leaping into the
@@ -152,13 +238,14 @@ export function planFade(
     const isDownbeat = opts.snapTo === "downbeat";
     const halfPeriod = isDownbeat ? 2 * beatLen : beatLen / 2;
     const phase = incoming.downbeatPhase;
+    const flags = incoming.downbeats;
     const nearestOnGrid = (downbeatsOnly: boolean, window: number): number | null => {
       let nearest: number | null = null;
       let nearestDist = Infinity;
       for (let i = 0; i < incoming.beats!.length; i++) {
         const t = incoming.beats![i];
         if (t === undefined) continue;
-        if (downbeatsOnly && (i % 4) !== phase) continue;
+        if (downbeatsOnly && !onDownbeat(i, phase, flags)) continue;
         const d = Math.abs(t - anchorSec);
         if (d <= window && d < nearestDist) {
           nearestDist = d;
@@ -184,8 +271,8 @@ export function planFade(
     // playing at ~125, so the incoming deck must land on 125. `rate`
     // folds in the tempo slider and any live pitch bend — the same
     // reference `mixer.fadeFromTo` uses, so both stay consistent.
-    const outRate = outgoing.tempoRate ?? outgoing.rate;
-    const outBpm = outgoing.baseBPM * (outRate > 0 ? outRate : 1);
+    const tempoRate = outgoing.tempoRate ?? outgoing.rate;
+    const outBpm = outgoing.baseBPM * (tempoRate > 0 ? tempoRate : 1);
     const target = octaveMatched(outBpm, incoming.baseBPM);
     const pct = (target / incoming.baseBPM - 1) * 100;
     if (within(pct, 8)) {
@@ -198,16 +285,33 @@ export function planFade(
     syncStatus = "beat sync off: no BPM yet — plain fade";
   }
 
-  const status = formatStatus(opts.snapTo, waitMs / 1000, syncStatus);
-  return { snapAtSec, waitMs, incomingStartSec, tempoSyncTarget, status };
+  const status = formatStatus(
+    atMixOut ? "mix-out" : opts.snapTo,
+    waitMs / 1000,
+    syncStatus,
+  );
+  return {
+    snapAtSec,
+    waitMs,
+    incomingStartSec,
+    tempoSyncTarget,
+    fadeSec,
+    atMixOut,
+    status,
+  };
 }
 
 function formatStatus(
-  snapTo: SnapTo,
+  snapTo: SnapTo | "mix-out",
   waitSec: number,
   sync: string,
 ): string {
-  const snap = snapTo === "downbeat" ? "next bar" : "next beat";
+  const snap =
+    snapTo === "mix-out"
+      ? "the mix-out point"
+      : snapTo === "downbeat"
+        ? "next bar"
+        : "next beat";
   const wait = waitSec >= 0.05 ? ` in ${waitSec.toFixed(1)}s` : "";
   return `fading at ${snap}${wait}${sync ? ` (${sync})` : ""}`;
 }

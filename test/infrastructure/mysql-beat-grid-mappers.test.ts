@@ -51,6 +51,39 @@ test("beatGridToRow → rowToBeatGrid round-trips via a Float32 LE blob", () => 
   }
 });
 
+test("mix-out point and per-bar downbeats round-trip; bad bar blobs read as none", () => {
+  const grid: BeatGrid = {
+    ...sampleGrid(),
+    mixOutBeatIndex: 3,
+    barStarts: Int32Array.from([0, 2]),
+  };
+  const params = beatGridToRow("u1", grid);
+  assert.equal(params.mixOut, 3);
+  const row = {
+    track_id: grid.trackId,
+    duration_sec: grid.durationSec,
+    beat_count: grid.beats.length,
+    downbeat_phase: grid.downbeatPhase,
+    first_solid_index: grid.firstSolidBeatIndex,
+    confidence: grid.confidence,
+    analyzer_version: grid.analyzerVersion,
+    analyzed_at: grid.analyzedAt,
+    beats_blob: params.beats,
+    mix_out_index: BigInt(params.mixOut),
+    bars_blob: params.bars,
+  };
+  const back = rowToBeatGrid(row);
+  assert.equal(back?.mixOutBeatIndex, 3);
+  assert.deepEqual(Array.from(back!.barStarts!), [0, 2]);
+
+  // Index past the last beat, or a truncated blob: fall back to the phase.
+  const bad = Buffer.alloc(4);
+  bad.writeInt32LE(99, 0);
+  assert.equal(rowToBeatGrid({ ...row, bars_blob: bad })?.barStarts, null);
+  assert.equal(rowToBeatGrid({ ...row, bars_blob: Buffer.alloc(3) })?.barStarts, null);
+  assert.equal(beatGridToRow("u1", sampleGrid()).bars, null);
+});
+
 test("rowToBeatGrid rejects an invalid downbeat_phase", () => {
   const buf = Buffer.allocUnsafe(8);
   buf.writeFloatLE(0.1, 0);

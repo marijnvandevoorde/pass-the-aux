@@ -131,6 +131,51 @@ test("sqlite: beat grids round-trip a Float32 BLOB", async () => {
   assert.equal(got?.beats[2], 1.5);
 });
 
+test("sqlite: beat grids keep the mix-out point and per-bar downbeats", async () => {
+  const repo = new SqliteBeatGridRepository(fresh());
+  const beats = new Float32Array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]);
+  const base = {
+    trackId: "x.mp3",
+    durationSec: 4.5,
+    beats,
+    downbeatPhase: 0 as const,
+    firstSolidBeatIndex: 0,
+    confidence: 0.9,
+    analyzerVersion: 5,
+  };
+  await repo.put("u", { ...base, mixOutBeatIndex: 3, barStarts: Int32Array.from([0, 3, 7]) });
+  const got = await repo.get("u", "x.mp3");
+  assert.equal(got?.mixOutBeatIndex, 3);
+  assert.deepEqual(Array.from(got!.barStarts!), [0, 3, 7]);
+
+  // A grid without them (local analyzer, old sidecar) reads back as none.
+  await repo.put("u", base);
+  const plain = await repo.get("u", "x.mp3");
+  assert.equal(plain?.mixOutBeatIndex, -1);
+  assert.equal(plain?.barStarts, null);
+});
+
+test("sqlite: an old beat_grids table gains the new columns", async () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`CREATE TABLE beat_grids (
+    user_id TEXT NOT NULL, track_id TEXT NOT NULL, duration_sec REAL NOT NULL,
+    beat_count INTEGER NOT NULL, downbeat_phase INTEGER NOT NULL,
+    first_solid_index INTEGER NOT NULL, confidence REAL NOT NULL,
+    analyzer_version INTEGER NOT NULL, analyzed_at INTEGER NOT NULL,
+    beats_blob BLOB NOT NULL, PRIMARY KEY (user_id, track_id))`);
+  const blob = Buffer.alloc(8);
+  blob.writeFloatLE(0.5, 0);
+  blob.writeFloatLE(1.0, 4);
+  db.prepare(
+    `INSERT INTO beat_grids VALUES ('u', 'old.mp3', 2, 2, 1, -1, 0.5, 4, 0, ?)`,
+  ).run(blob);
+  const repo = new SqliteBeatGridRepository(db);
+  const old = await repo.get("u", "old.mp3");
+  assert.equal(old?.downbeatPhase, 1);
+  assert.equal(old?.mixOutBeatIndex, -1);
+  assert.equal(old?.barStarts, null);
+});
+
 test("sqlite: remote libraries enforce single-active + promote on delete", async () => {
   const repo = new SqliteRemoteLibrariesRepository(fresh());
 

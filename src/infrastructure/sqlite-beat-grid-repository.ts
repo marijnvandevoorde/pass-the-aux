@@ -1,6 +1,7 @@
 import type { BeatGrid } from "../domain/beat-grid.ts";
 import type { BeatGridRepository } from "../domain/ports/beat-grid-repository.ts";
 import { ensureSchema, type Db } from "./sqlite-pool.ts";
+import { packBarStarts, unpackBarStarts } from "./bar-starts-blob.ts";
 
 interface DbRow {
   track_id: string;
@@ -12,6 +13,8 @@ interface DbRow {
   analyzer_version: number;
   analyzed_at: number;
   beats_blob: Uint8Array;
+  mix_out_index: number | null;
+  bars_blob: Uint8Array | null;
 }
 
 function rowToBeatGrid(row: DbRow): BeatGrid | null {
@@ -29,6 +32,8 @@ function rowToBeatGrid(row: DbRow): BeatGrid | null {
     beats,
     downbeatPhase: phase,
     firstSolidBeatIndex: Number(row.first_solid_index),
+    mixOutBeatIndex: row.mix_out_index === null ? -1 : Number(row.mix_out_index),
+    barStarts: unpackBarStarts(row.bars_blob, count),
     confidence: Number(row.confidence),
     analyzedAt: Number(row.analyzed_at),
     analyzerVersion: row.analyzer_version,
@@ -48,7 +53,7 @@ export class SqliteBeatGridRepository implements BeatGridRepository {
       .prepare(
         `SELECT track_id, duration_sec, beat_count, downbeat_phase,
                 first_solid_index, confidence, analyzer_version, analyzed_at,
-                beats_blob
+                beats_blob, mix_out_index, bars_blob
            FROM beat_grids
           WHERE user_id = :uid AND track_id = :id
           LIMIT 1`,
@@ -71,9 +76,9 @@ export class SqliteBeatGridRepository implements BeatGridRepository {
         `INSERT INTO beat_grids
            (user_id, track_id, duration_sec, beat_count, downbeat_phase,
             first_solid_index, confidence, analyzer_version, analyzed_at,
-            beats_blob)
+            beats_blob, mix_out_index, bars_blob)
          VALUES (:uid, :id, :duration, :count, :phase, :firstSolid, :conf,
-                 :ver, :at, :beats)
+                 :ver, :at, :beats, :mixOut, :bars)
          ON CONFLICT (user_id, track_id) DO UPDATE SET
            duration_sec=excluded.duration_sec,
            beat_count=excluded.beat_count,
@@ -82,7 +87,9 @@ export class SqliteBeatGridRepository implements BeatGridRepository {
            confidence=excluded.confidence,
            analyzer_version=excluded.analyzer_version,
            analyzed_at=excluded.analyzed_at,
-           beats_blob=excluded.beats_blob`,
+           beats_blob=excluded.beats_blob,
+           mix_out_index=excluded.mix_out_index,
+           bars_blob=excluded.bars_blob`,
       )
       .run({
         uid: userId,
@@ -95,6 +102,8 @@ export class SqliteBeatGridRepository implements BeatGridRepository {
         ver: grid.analyzerVersion,
         at: Date.now(),
         beats: buf,
+        mixOut: grid.mixOutBeatIndex ?? -1,
+        bars: packBarStarts(grid.barStarts),
       });
   }
 

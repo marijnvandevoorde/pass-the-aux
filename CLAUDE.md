@@ -90,7 +90,12 @@ it as 404). A sidecar 500 on one track (`TrackAnalysisFailedError`) is
 retried on later sweeps and stored as empty only after 3 failures; tracks
 that failed go to the back of the next sweep, so one bad track can't
 block the rest. The bar phase comes from the sidecar's `downbeatPhase`
-when it sends one (pass-the-beat ≥ analyzerVersion 2). With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
+when it sends one (pass-the-beat ≥ analyzerVersion 2). From analyzer v3
+the sidecar also sends `barStarts` (every bar's downbeat; stored as
+`beat_grids.bars_blob`, Int32 LE) and `mixOutBeat` (`mix_out_index`);
+the browser counts bars from `barStarts` (`downbeatFlags`) and falls
+back to `i % 4` from the phase without it. Schema changes are guarded
+`addColumnIfMissing` calls in `sqlite-pool.ts` / `mysql-pool.ts`. With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
 scales the sidecar up for a batch and back to zero when idle.
 
 ## spotify-api on demand

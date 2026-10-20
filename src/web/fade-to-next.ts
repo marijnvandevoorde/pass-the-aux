@@ -31,9 +31,14 @@ export interface TransitionHandle {
 }
 
 export interface TransitionOpts {
+  /** Wanted fade length; at the mix-out point it is fitted to whole bars
+   *  of the outro. */
   durationSec: number;
   beatSync: boolean;
   snapTo: SnapTo;
+  /** Start at this point of the outgoing track (its mix-out point)
+   *  instead of the next beat/bar, when it is still ahead. */
+  mixOutSec?: number | null;
   onStatus?: (status: string) => void;
   /** Live crossfader position (-1 .. +1) for the slider UI. */
   onCrossfade?: (pos: number) => void;
@@ -66,6 +71,8 @@ export function startTransition(
       cuePoint: from.cuePoint,
       beats: from.beats,
       downbeatPhase: from.downbeatPhase,
+      downbeats: from.downbeats,
+      durationSec: from.duration,
     },
     {
       id: to.id,
@@ -74,8 +81,14 @@ export function startTransition(
       firstSolidCueSec: to.firstSolidCueSec,
       beats: to.beats,
       downbeatPhase: to.downbeatPhase,
+      downbeats: to.downbeats,
     },
-    { snapTo: opts.snapTo, beatSync: opts.beatSync },
+    {
+      snapTo: opts.snapTo,
+      beatSync: opts.beatSync,
+      mixOutSec: opts.mixOutSec ?? null,
+      fadeSec: opts.durationSec,
+    },
   );
   if (!plan) {
     opts.onStatus?.("could not plan a fade — try again");
@@ -95,7 +108,7 @@ export function startTransition(
   const fromPos = from.id === "A" ? -1 : 1;
   const toPos = to.id === "A" ? -1 : 1;
   const startPos = mixer.crossfadePosition;
-  const dur = Math.max(0.05, opts.durationSec);
+  const dur = Math.max(0.05, plan.fadeSec);
   const gen = mixer.scheduleCrossfade(startPos, toPos, when, dur);
   opts.onStatus?.(plan.status);
 

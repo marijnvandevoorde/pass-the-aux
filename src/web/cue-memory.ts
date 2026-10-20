@@ -24,6 +24,10 @@ export class CueMemory {
     }
   }
 
+  delete(key: string | null | undefined): void {
+    if (key) this.#cues.delete(key);
+  }
+
   serialize(): string {
     return JSON.stringify([...this.#cues]);
   }
