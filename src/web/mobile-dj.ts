@@ -203,7 +203,9 @@ function handleTimeUpdate(deck: HTMLAudioElement): void {
 }
 
 function handleEnded(deck: HTMLAudioElement): void {
-  if (deck === activeDeck) advance();
+  // During a fade the outgoing deck may end before the swap: the fade
+  // owns the advance then.
+  if (deck === activeDeck && !fading) advance();
 }
 
 function handlePlayPause(deck: HTMLAudioElement): void {
@@ -297,11 +299,15 @@ async function doFadeToNext(): Promise<void> {
     }
   }
 
-  if (waitMs > 0) await new Promise<void>((r) => setTimeout(r, waitMs));
-
+  // Claim the next track now: the queue can change during the wait and
+  // the fade (crowd adds, removals), and shifting at the end would drop
+  // whatever happens to be first by then.
   fading = true;
-  const next = queue[0];
+  const next = queue.shift();
   if (!next) { fading = false; return; }
+  renderQueue();
+
+  if (waitMs > 0) await new Promise<void>((r) => setTimeout(r, waitMs));
 
   // Load next into the inactive deck, start it silent, then crossfade gains.
   const outDeck = activeDeck;
@@ -326,7 +332,6 @@ async function doFadeToNext(): Promise<void> {
   activeDeck = inDeck;
   inactiveDeck = outDeck;
   fading = false;
-  queue.shift();
   commitNowPlaying(next);
 }
 
@@ -503,10 +508,16 @@ function renderQueue(): void {
 
   queueListEl.querySelectorAll<HTMLButtonElement>(".remove-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const idx = parseInt(btn.dataset.idx ?? "0", 10);
+      // Remove by identity after the exit animation: the queue may have
+      // shifted in those 220 ms (track advanced, crowd sync).
+      const item = queue[parseInt(btn.dataset.idx ?? "0", 10)];
       const card = btn.closest(".ondeck-card, .queue-item");
       if (card) card.classList.add("removing");
-      setTimeout(() => { queue.splice(idx, 1); renderQueue(); }, 220);
+      setTimeout(() => {
+        const i = item ? queue.indexOf(item) : -1;
+        if (i >= 0) queue.splice(i, 1);
+        renderQueue();
+      }, 220);
     });
   });
 }

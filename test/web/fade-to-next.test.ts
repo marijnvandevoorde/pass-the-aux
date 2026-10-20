@@ -41,9 +41,9 @@ test("with no grid + no BPM: schedules with the min lead time", () => {
     { snapTo: "downbeat", beatSync: true },
   );
   assert.ok(plan);
-  // snapAtSec = currentTime + minLead (0.05); waitMs ≈ 50.
-  close(plan.snapAtSec, 10.05);
-  close(plan.waitMs, 50);
+  // snapAtSec = currentTime + minLead (0.08); waitMs ≈ 80.
+  close(plan.snapAtSec, 10.08);
+  close(plan.waitMs, 80);
   assert.equal(plan.tempoSyncTarget, null);
 });
 
@@ -267,4 +267,37 @@ test("minLead is honoured: very near current beat is skipped, not raced", () => 
   );
   assert.ok(plan);
   close(plan.snapAtSec, 1.0);
+});
+
+test("beat sync without a BPM says so instead of failing silently", () => {
+  const plan = planFade(outgoing(), incoming({ baseBPM: null }), {
+    snapTo: "beat",
+    beatSync: true,
+  });
+  assert.ok(plan?.status.includes("no BPM yet"));
+});
+
+test("tempo target ignores a nudge held at plan time (tempoRate, not rate)", () => {
+  // Outgoing 120 BPM at +0 % tempo but a 4 % nudge held: target stays 120.
+  const plan = planFade(
+    outgoing({ baseBPM: 120, rate: 1.04, tempoRate: 1 }),
+    incoming({ baseBPM: 122 }),
+    { snapTo: "beat", beatSync: true },
+  );
+  assert.ok(plan);
+  close(plan.tempoSyncTarget ?? 0, 120);
+});
+
+test("phase-snap: downbeat mode falls back to the nearest beat when no bar is near", () => {
+  // downbeatPhase 3 ⇒ the only downbeat is beats[3] = 12, 1.7 s from
+  // the 10.3 anchor (more than ½ bar = 1 s at 120 BPM).
+  const beats = new Float32Array([10.5, 11, 11.5, 12, 12.5]);
+  const plan = planFade(
+    outgoing(),
+    incoming({ cuePoint: 10.3, baseBPM: 120, beats, downbeatPhase: 3 }),
+    { snapTo: "downbeat", beatSync: false },
+  );
+  assert.ok(plan);
+  // → the nearest beat (10.5) instead of staying between beats.
+  close(plan.incomingStartSec, 10.5);
 });

@@ -1,6 +1,6 @@
 import type { DeckId, TrackInfo } from "./types.js";
 import { bitcrushCurve } from "./bitcrush.js";
-import { beatIndexAfter as pureBeatIndexAfter, nextDownbeatAfter as pureNextDownbeatAfter } from "./beatsync.js";
+import { beatIndexAfter as pureBeatIndexAfter, gridBpm, nextDownbeatAfter as pureNextDownbeatAfter } from "./beatsync.js";
 
 export type EqBand = "low" | "mid" | "high";
 
@@ -17,6 +17,12 @@ export class Deck {
   baseBPM: number | null = null;
   tempoPercent = 0;
   cuePoint = 0;
+  /** True once the DJ set the cue by hand for the loaded track. An
+   *  automatic cue (the mix-in point) never overwrites a manual one. */
+  cueManual = false;
+  /** Bumped by every load and unload, so a load that finishes after a
+   *  newer one (or after an eject) can tell it is stale. */
+  #loadSeq = 0;
 
   /** per-track beat grid (server-computed). When present,
    *  the auto-mix scheduler aligns the fade to a real beat/downbeat
@@ -249,9 +255,9 @@ export class Deck {
   get currentTime(): number {
     if (!this.buffer) return 0;
     if (!this.isPlaying) return this.#pausedOffset;
-    let t =
-      this.#startOffset +
-      (this.ctx.currentTime - this.#startCtxTime) * this.rate;
+    // A scheduled start (playAt) sits in the future: hold the start offset.
+    const elapsed = Math.max(0, this.ctx.currentTime - this.#startCtxTime);
+    let t = this.#startOffset + elapsed * this.rate;
     // Mirror the native source's loop wrap so the playhead/UI stays inside
     // the loop region (loop points are buffer-time, unaffected by rate).
     if (this.loopActive && this.loopStartSec !== null && this.loopEndSec !== null) {
@@ -260,6 +266,20 @@ export class Deck {
       if (b > a && t > a) t = a + ((t - a) % (b - a));
     }
     return Math.min(t, this.duration);
+  }
+
+  /** Playback rate from the tempo control alone (no temporary bend). */
+  get tempoRate(): number {
+    return 1 + this.tempoPercent / 100;
+  }
+
+  /** Audio-clock time at which the playhead reaches `trackSec`, or null
+   *  when the deck isn't playing (or a loop makes it ambiguous). */
+  ctxTimeAt(trackSec: number): number | null {
+    if (!this.isPlaying || this.loopActive) return null;
+    const r = this.rate;
+    if (r <= 0) return null;
+    return this.#startCtxTime + (trackSec - this.#startOffset) / r;
   }
 
   get effectiveBPM(): number | null {
@@ -275,17 +295,40 @@ export class Deck {
     this.showBeatgrid = !this.showBeatgrid;
   }
 
+  /** Start a load: returns a token that `isCurrentLoad` checks after
+   *  each await. A newer load or an unload invalidates it. */
+  beginLoad(): number {
+    return ++this.#loadSeq;
+  }
+
+  /** The current load token, without starting a new load (to check
+   *  later that the same track is still on the deck). */
+  currentLoadToken(): number {
+    return this.#loadSeq;
+  }
+
+  isCurrentLoad(token: number): boolean {
+    return token === this.#loadSeq;
+  }
+
+  /** Decode and install a track. With a `token` from `beginLoad`, returns
+   *  null (and leaves the deck alone) when a newer load superseded it
+   *  while decoding. */
   async loadArrayBuffer(
     arrayBuffer: ArrayBuffer,
     track: TrackInfo | null,
-  ): Promise<AudioBuffer> {
+    token?: number,
+  ): Promise<AudioBuffer | null> {
     const decoded = await this.ctx.decodeAudioData(arrayBuffer);
+    if (token !== undefined && !this.isCurrentLoad(token)) return null;
     this.stop();
+    this.#bend = 1;
     this.buffer = decoded;
     this.track = track;
     this.baseBPM = track && track.bpm ? track.bpm : null;
     this.#pausedOffset = 0;
     this.cuePoint = 0;
+    this.cueManual = false;
     this.loopStartSec = null;
     this.loopEndSec = null;
     this.loopActive = false;
@@ -307,6 +350,28 @@ export class Deck {
     this.beats = new Float32Array(g.beats);
     this.downbeatPhase = g.downbeatPhase;
     this.firstSolidCueSec = g.firstSolidCueSec;
+    // The grid is the authoritative tempo: the library BPM can be the
+    // provisional one (or stale when the grid was built after the page
+    // loaded). Tempo matching must use the same tempo the phase math
+    // uses, or the decks drift apart during a fade.
+    const bpm = gridBpm(this.beats);
+    if (bpm !== null) this.baseBPM = bpm;
+  }
+
+  /** Set the cue by hand at `sec` (sticks for this track). */
+  setManualCue(sec: number): void {
+    this.cuePoint = Math.max(0, Math.min(sec, this.duration));
+    this.cueManual = true;
+    if (!this.isPlaying) this.#pausedOffset = this.cuePoint;
+  }
+
+  /** Set an automatic cue (e.g. the mix-in point). Ignored when the DJ
+   *  already cued this track by hand. Parks a stopped deck on it. */
+  setAutoCue(sec: number): boolean {
+    if (this.cueManual || !this.buffer) return false;
+    this.cuePoint = Math.max(0, Math.min(sec, this.duration));
+    if (!this.isPlaying) this.#pausedOffset = this.cuePoint;
+    return true;
   }
 
   /** Binary search: index of the first beat strictly after `posSec`,
@@ -328,7 +393,7 @@ export class Deck {
       : null;
   }
 
-  #makeSource(offset: number): void {
+  #makeSource(offset: number, when = 0): void {
     if (!this.buffer) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
@@ -340,9 +405,9 @@ export class Deck {
       this.#pausedOffset = this.duration;
       this.source = null;
     };
-    src.start(0, Math.max(0, Math.min(offset, this.duration - 0.01)));
+    src.start(when, Math.max(0, Math.min(offset, this.duration - 0.01)));
     this.source = src;
-    this.#startCtxTime = this.ctx.currentTime;
+    this.#startCtxTime = when > 0 ? when : this.ctx.currentTime;
     this.#startOffset = offset;
     this.#applyLoop();
   }
@@ -350,6 +415,15 @@ export class Deck {
   play(): void {
     if (!this.buffer || this.isPlaying) return;
     this.#makeSource(this.#pausedOffset);
+    this.isPlaying = true;
+  }
+
+  /** Start playback from `offset` at audio-clock time `when`
+   *  (sample-accurate; used to land the incoming deck on a beat). */
+  playAt(when: number, offset: number): void {
+    if (!this.buffer) return;
+    this.stop();
+    this.#makeSource(offset, Math.max(this.ctx.currentTime, when));
     this.isPlaying = true;
   }
 
@@ -381,13 +455,16 @@ export class Deck {
   /** Eject: stop and clear the loaded track and all per-track state.
    *  Mixer/FX/keylock settings are intentionally preserved. */
   unload(): void {
+    this.#loadSeq++;
     this.stop();
+    this.#bend = 1;
     this.buffer = null;
     this.track = null;
     this.peaks = null;
     this.baseBPM = null;
     this.#pausedOffset = 0;
     this.cuePoint = 0;
+    this.cueManual = false;
     this.loopStartSec = null;
     this.loopEndSec = null;
     this.loopActive = false;
@@ -405,7 +482,12 @@ export class Deck {
   }
 
   setCue(): void {
-    this.cuePoint = this.currentTime;
+    this.setManualCue(this.currentTime);
+  }
+
+  /** True when playback ran to the end of the track (not a DJ pause). */
+  get ended(): boolean {
+    return !!this.buffer && !this.isPlaying && this.#pausedOffset >= this.duration - 0.05;
   }
 
   goToCue(): void {

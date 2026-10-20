@@ -1,6 +1,26 @@
-import type { Deck } from "./deck.js";
-import type { Mixer, FadeHandle } from "./mixer.js";
 import type { DeckId, TrackInfo } from "./types.js";
+
+/** What Automix needs from a deck. `Deck` satisfies it; tests use fakes. */
+export interface AutomixDeck {
+  readonly id: DeckId;
+  readonly buffer: unknown;
+  readonly track: TrackInfo | null;
+  readonly isPlaying: boolean;
+  /** Playback ran to the end of the track (not a DJ pause). */
+  readonly ended: boolean;
+  readonly duration: number;
+  readonly currentTime: number;
+  readonly rate: number;
+  readonly cuePoint: number;
+  readonly beatLengthSec: number | null;
+  play(): void;
+  seek(seconds: number): void;
+  unload(): void;
+}
+
+export interface TransitionHandle {
+  cancel(): void;
+}
 
 export interface AutomixUI {
   status(message: string): void;
@@ -11,22 +31,49 @@ export interface AutomixUI {
 }
 
 export interface AutomixDeps {
-  decks: Record<DeckId, Deck>;
-  mixer: Mixer;
-  loadToDeck(track: TrackInfo, deck: DeckId): Promise<void>;
+  decks: Record<DeckId, AutomixDeck>;
+  /** Load a track onto a deck. Resolves true when it's on the deck,
+   *  false when the load failed or a newer load / eject superseded it. */
+  loadToDeck(track: TrackInfo, deck: DeckId): Promise<boolean>;
   fadeSeconds(): number;
+  /** Start the shared beat-aligned crossfade `from` → `to`. */
+  transition(
+    from: DeckId,
+    to: DeckId,
+    onDone: (info: { cancelled: boolean }) => void,
+  ): TransitionHandle | null;
+  /** Move the crossfader instantly (arming, rescue starts). */
+  setCrossfade(position: number): void;
   /** supply a compatible next track when the queue is
    *  empty (returns null if auto-fill is off or nothing fits). */
   autoFill?: () => TrackInfo | null;
   ui: AutomixUI;
 }
 
+export interface NextUp {
+  track: TrackInfo;
+  deck: DeckId;
+  /** Still downloading / decoding. */
+  loading: boolean;
+}
+
+const MAX_LOAD_ATTEMPTS = 3;
+const RETRY_MS = 3000;
+/** Auto-fill picks a track this long before the fade is due. */
+const AUTOFILL_LEAD_SEC = 30;
+
 const other = (id: DeckId): DeckId => (id === "A" ? "B" : "A");
+const sideOf = (id: DeckId): number => (id === "A" ? -1 : 1);
 
 /**
  * Queue + auto-crossfade state machine. The active deck plays while the
- * idle deck preloads the next track; a crossfade fires near the end of
- * the active track (or on demand) and the chain alternates A <-> B.
+ * idle deck holds the next track; a crossfade fires near the end of the
+ * active track (or on demand) and the chain alternates A <-> B.
+ *
+ * The decks are the source of truth: every tick re-derives which deck is
+ * active and whether the next track is ready from what the decks actually
+ * hold, so a track started by hand, a page refresh or a failed load can't
+ * leave the state machine believing something that isn't so.
  */
 export class Automix {
   readonly #d: AutomixDeps;
@@ -36,24 +83,51 @@ export class Automix {
   /** tempo-match + phase-align the incoming deck before a fade. */
   beatSync = true;
   #active: DeckId | null = null;
-  /** the fade loop now lives on Mixer.fadeFromTo. We only
-   *  hold the handle here so tick() knows not to start another fade. */
-  #fadeHandle: FadeHandle | null = null;
-  #nextLoaded = false;
-  #preparing = false;
+  #fade: TransitionHandle | null = null;
+  /** The track being loaded onto the idle deck, if any. */
+  #pending: TrackInfo | null = null;
   #prep: Promise<void> | null = null;
+  /** Bumped when an in-flight preload must be forgotten (eject). */
+  #prepGen = 0;
   #booting = false;
-  /** While true, enqueue() never auto-arms a deck. Session restore
-   *  sets this so re-enqueuing the saved queue can't yank its head
-   *  onto the decks before the saved decks are rehydrated. */
+  /** After a failed preload: don't retry before this (ms since epoch). */
+  #retryAt = 0;
+  /** Failed attempts for the track at the head of the queue. */
+  #headFailures = 0;
+  /** While true, nothing auto-arms or auto-advances. Session restore
+   *  sets this so re-enqueuing the saved queue can't yank its head onto
+   *  the decks before the saved decks are rehydrated. */
   #suspended = false;
 
-  constructor(deps: AutomixDeps) {
+  readonly #now: () => number;
+
+  constructor(deps: AutomixDeps, now: () => number = Date.now) {
     this.#d = deps;
+    this.#now = now;
   }
 
   get queue(): readonly TrackInfo[] {
     return this.#queue;
+  }
+
+  /** The deck currently designated as the active (playing) deck, or null. */
+  get activeDeck(): DeckId | null {
+    return this.#active;
+  }
+
+  /** True while a transition is scheduled or running. */
+  get fading(): boolean {
+    return this.#fade !== null;
+  }
+
+  /** The track lined up on the idle deck (loaded or loading), if any. */
+  get nextUp(): NextUp | null {
+    if (this.#active === null) return null;
+    const idle = other(this.#active);
+    if (this.#pending) return { track: this.#pending, deck: idle, loading: true };
+    const d = this.#d.decks[idle];
+    if (this.#idleReady() && d.track) return { track: d.track, deck: idle, loading: false };
+    return null;
   }
 
   enqueue(track: TrackInfo): void {
@@ -64,30 +138,25 @@ export class Automix {
       bpm: track.bpm ?? null,
     });
     this.#render();
+    if (this.#suspended) return;
     // Nothing playing and no set running → auto-arm Automix and load the
-    // head straight onto the first available deck, PAUSED (the DJ presses
-    // play to roll the set).
-    const playing =
-      this.#d.decks.A.isPlaying || this.#d.decks.B.isPlaying;
-    if (
-      this.#active === null &&
-      !playing &&
-      !this.#booting &&
-      !this.#suspended
-    ) {
+    // head onto the first free deck, PAUSED (the DJ presses play).
+    const playing = this.#d.decks.A.isPlaying || this.#d.decks.B.isPlaying;
+    if (!this.on && this.#active === null && !playing) {
       void this.#armFromQueue();
+      return;
     }
+    this.#reconcile();
   }
 
-  /** Pause/resume the enqueue() auto-arm (used during session
-   *  restore so the saved queue & decks aren't disturbed). */
+  /** Pause/resume auto-arm and auto-advance (session restore). */
   setSuspended(v: boolean): void {
     this.#suspended = v;
+    if (!v) this.#reconcile();
   }
 
-  /** Restore the toggle state on session reload — UI/state only, no
-   *  arming and no playback (decks/queue are rehydrated separately;
-   *  playback only resumes for decks that were playing). */
+  /** Restore the toggle state on session reload — UI/state only. The
+   *  next tick adopts whatever the rehydrated decks hold. */
   restoreOn(on: boolean): void {
     this.on = on;
     this.#syncToggle();
@@ -108,13 +177,9 @@ export class Automix {
   }
 
   removeAt(i: number): void {
+    if (i < 0 || i >= this.#queue.length) return;
     this.#queue.splice(i, 1);
     this.#render();
-  }
-
-  /** The deck currently designated as the active (playing) deck, or null. */
-  get activeDeck(): DeckId | null {
-    return this.#active;
   }
 
   toggle(): void {
@@ -125,17 +190,167 @@ export class Automix {
   async start(): Promise<void> {
     this.on = true;
     this.#syncToggle();
+    this.#reconcile();
     if (this.#active !== null) {
-      void this.#prepareNext();
       this.#d.ui.status(`automix on — Deck ${this.#active}`);
-      return;
-    }
-    if (this.#queue.length > 0) {
+    } else if (this.#queue.length > 0) {
       await this.#armFromQueue();
     } else {
       // Armable with an empty queue: the first track added will load.
       this.#d.ui.status("automix armed — add a track to load the first deck");
     }
+  }
+
+  /** Turn Automix off. A fade already under way finishes (cutting it
+   *  off halfway would leave both decks playing at half volume). */
+  stop(): void {
+    this.on = false;
+    this.#syncToggle();
+    this.#d.ui.status(
+      this.#queue.length ? `${this.#queue.length} queued` : "automix off",
+    );
+  }
+
+  /** Fade to the next track now (the "Fade to next" button, skip). */
+  async fadeNow(): Promise<void> {
+    if (!this.on) {
+      this.#d.ui.status("turn automix on first");
+      return;
+    }
+    if (this.#fade) return;
+    this.#adopt();
+    if (this.#active === null) {
+      this.#d.ui.status("nothing playing to fade from");
+      return;
+    }
+    if (!this.#idleReady()) {
+      await this.#prepareNext(); // may auto-fill from the library
+      if (this.#fade) return;
+      if (!this.#idleReady()) {
+        this.#d.ui.status("nothing queued to fade into");
+        return;
+      }
+    }
+    this.#beginFade();
+  }
+
+  /**
+   * Eject a deck. Off Automix: just clears it. Under Automix: ejecting
+   * the active deck advances the mix now; ejecting the idle deck drops
+   * its (possibly still loading) track and pulls the *new* queue head
+   * onto it — this is how you change your mind about the cued track.
+   */
+  eject(id: DeckId): void {
+    const deck = this.#d.decks[id];
+    if (this.on && this.#active === id && !this.#fade) {
+      if (this.#idleReady() || this.#pending || this.#queue.length > 0) {
+        void this.fadeNow(); // skip current → advance
+        return;
+      }
+      deck.unload();
+      this.#d.ui.setDeckName(id, "— no track —");
+      this.#active = null;
+      this.#syncToggle();
+      this.#render();
+      return;
+    }
+    if (this.#active !== null && id === other(this.#active) && this.#pending) {
+      // Forget the in-flight preload; unload() also invalidates the
+      // deck's load token so its audio never lands.
+      this.#prepGen++;
+      this.#pending = null;
+      this.#prep = null;
+    }
+    this.#fade?.cancel(); // ejecting a deck mid-fade aborts the fade
+    deck.unload();
+    this.#d.ui.setDeckName(id, "— no track —");
+    if (this.#active === id) this.#active = null;
+    this.#render();
+    this.#reconcile();
+  }
+
+  /** Called on a timer and every animation frame. */
+  tick(): void {
+    this.#reconcile();
+  }
+
+  toggleBeatSync(): boolean {
+    this.beatSync = !this.beatSync;
+    return this.beatSync;
+  }
+
+  // ── internals ─────────────────────────────────────────────────────
+
+  /** The idle deck holds a track that's ready to fade into. */
+  #idleReady(): boolean {
+    if (this.#active === null || this.#pending) return false;
+    const d = this.#d.decks[other(this.#active)];
+    return !!d.buffer && !d.isPlaying && !d.ended;
+  }
+
+  /** Re-derive the active deck from what the decks are doing. */
+  #adopt(): void {
+    const { A, B } = this.#d.decks;
+    const before = this.#active;
+    if (this.#active === null) {
+      if (A.isPlaying !== B.isPlaying) {
+        this.#active = A.isPlaying ? "A" : "B";
+      } else if (!A.isPlaying && !B.isPlaying) {
+        const aLoaded = !!A.buffer && !A.ended;
+        const bLoaded = !!B.buffer && !B.ended;
+        if (aLoaded && !bLoaded) this.#active = "A";
+        else if (bLoaded && !aLoaded) this.#active = "B";
+        else if (aLoaded && bLoaded) this.#active = "A";
+      }
+      // Both playing: a hand mix in progress — don't guess.
+    } else {
+      const act = this.#d.decks[this.#active];
+      const idle = this.#d.decks[other(this.#active)];
+      // The DJ brought the other deck in by hand and this one stopped.
+      if (!act.isPlaying && idle.isPlaying) this.#active = other(this.#active);
+      // Active deck ejected / emptied while the other still has a track.
+      else if (!act.buffer && idle.buffer && !this.#pending) {
+        this.#active = other(this.#active);
+      }
+    }
+    if (this.#active !== before) this.#syncToggle();
+  }
+
+  #reconcile(): void {
+    if (!this.on || this.#fade || this.#booting || this.#suspended) return;
+    this.#adopt();
+    if (this.#active === null) {
+      const { A, B } = this.#d.decks;
+      if (this.#queue.length > 0 && !A.isPlaying && !B.isPlaying) {
+        void this.#armFromQueue();
+      }
+      return;
+    }
+    const act = this.#d.decks[this.#active];
+    const rate = act.rate > 0 ? act.rate : 1;
+    const remaining = (act.duration - act.currentTime) / rate;
+    // The transition waits for the next bar before it starts: trigger a
+    // bar early so the fade is done by the time the track ends.
+    const bar = act.beatLengthSec ? (4 * act.beatLengthSec) / rate : 2;
+    const fadeAt = this.#d.fadeSeconds() + bar;
+
+    if (!this.#idleReady() && !this.#pending && this.#now() >= this.#retryAt) {
+      // Auto-fill is the last resort: only once the playing track is
+      // nearly done (or has run out), so a track the DJ or a guest
+      // queues in the meantime still goes first.
+      const late =
+        act.ended || !act.buffer || (act.isPlaying && remaining <= fadeAt + AUTOFILL_LEAD_SEC);
+      void this.#prepareNext(late);
+    }
+
+    if (act.ended || !act.buffer) {
+      // The active track ran out with nothing faded in (queue was dry,
+      // load too slow): start the next one now rather than sit silent.
+      if (this.#idleReady()) this.#startNow();
+      return;
+    }
+    if (!act.isPlaying || !this.#idleReady()) return;
+    if (remaining <= fadeAt) this.#beginFade();
   }
 
   /** Load the head of the queue onto the first available deck, PAUSED,
@@ -148,11 +363,10 @@ export class Automix {
         this.on = true;
         this.#syncToggle();
       }
-      const a = this.#d.decks.A;
-      const b = this.#d.decks.B;
+      const { A: a, B: b } = this.#d.decks;
       let deck: DeckId | null = null;
-      if (!a.isPlaying && !a.track) deck = "A";
-      else if (!b.isPlaying && !b.track) deck = "B";
+      if (!a.isPlaying && !a.buffer) deck = "A";
+      else if (!b.isPlaying && !b.buffer) deck = "B";
       else if (!a.isPlaying) deck = "A";
       else if (!b.isPlaying) deck = "B";
       if (deck === null) return; // both decks busy — leave it queued
@@ -160,181 +374,115 @@ export class Automix {
       const track = this.#queue.shift()!;
       this.#render();
       this.#d.ui.status(`loading ${track.name}…`);
-      await this.#d.loadToDeck(track, deck);
+      const ok = await this.#d.loadToDeck(track, deck);
+      if (!ok) {
+        this.#d.ui.status(`couldn't load ${track.name} — skipped`);
+        return;
+      }
       this.#active = deck;
-      const xf = deck === "A" ? -1 : 1;
-      this.#d.mixer.setCrossfade(xf);
-      this.#d.ui.setCrossfader(xf);
+      this.#d.setCrossfade(sideOf(deck));
+      this.#d.ui.setCrossfader(sideOf(deck));
       this.#syncToggle();
       this.#d.ui.status(`automix armed — Deck ${deck} ready (press play)`);
-      void this.#prepareNext();
     } finally {
       this.#booting = false;
-    }
-  }
-
-  stop(): void {
-    this.on = false;
-    this.#fadeHandle?.cancel();
-    this.#fadeHandle = null;
-    this.#syncToggle();
-    this.#d.ui.status(
-      this.#queue.length ? `${this.#queue.length} queued` : "automix off",
-    );
-  }
-
-  async fadeNow(): Promise<void> {
-    if (!this.on) {
-      this.#d.ui.status("turn automix on first");
-      return;
-    }
-    if (this.#fadeHandle) return;
-    if (!this.#nextLoaded) {
-      await this.#prepareNext(); // may auto-fill from the library
-      if (!this.#nextLoaded) {
-        this.#d.ui.status("nothing queued to fade into");
-        return;
-      }
-    }
-    if (this.#nextLoaded) this.#beginFade();
-  }
-
-  /**
-   * Eject a deck. Off Automix: just clears it. Under Automix: ejecting
-   * the active deck advances the mix now; ejecting the idle deck drops
-   * its (possibly preloaded) track and pulls the *new* queue head onto
-   * it so the chain never stalls — this is what lets you change your
-   * mind about an already-cued next track.
-   */
-  eject(id: DeckId): void {
-    const deck = this.#d.decks[id];
-    if (this.on && this.#active === id) {
-      if (this.#nextLoaded || this.#queue.length > 0) {
-        void this.fadeNow(); // skip current → advance
-        return;
-      }
-      deck.stop();
-      deck.unload();
-      this.#d.ui.setDeckName(id, "— no track —");
-      this.#active = null;
-      this.#syncToggle();
       this.#render();
-      return;
     }
-    deck.unload();
-    this.#d.ui.setDeckName(id, "— no track —");
-    if (this.on && this.#active !== null) {
-      this.#nextLoaded = false;
-      void this.#prepareNext(); // re-pull the new head onto this deck
-    }
-    this.#render();
+    this.#reconcile();
   }
 
-  /** Called every animation frame from the render loop. */
-  tick(): void {
-    if (!this.on || this.#active === null || this.#fadeHandle) return;
-    if (
-      !this.#nextLoaded &&
-      !this.#preparing &&
-      (this.#queue.length > 0 || this.#d.autoFill !== undefined)
-    ) {
-      void this.#prepareNext();
-    }
-    if (!this.#nextLoaded) return;
-    const d = this.#d.decks[this.#active];
-    if (!d.buffer || !d.isPlaying) return;
-    const realRemaining = (d.duration - d.currentTime) / d.rate;
-    if (realRemaining <= this.#d.fadeSeconds()) this.#beginFade();
-  }
-
-  #prepareNext(): Promise<void> {
-    if (!this.on || this.#active === null || this.#nextLoaded) {
+  #prepareNext(allowAutoFill = true): Promise<void> {
+    if (!this.on || this.#active === null || this.#idleReady()) {
       return Promise.resolve();
     }
-    if (this.#preparing) return this.#prep ?? Promise.resolve();
+    if (this.#prep) return this.#prep;
 
     const track =
       this.#queue.length > 0
         ? this.#queue.shift()!
-        : (this.#d.autoFill?.() ?? null);
+        : allowAutoFill
+          ? (this.#d.autoFill?.() ?? null)
+          : null;
     if (!track) return Promise.resolve(); // queue empty, no auto-fill pick
 
     const idle = other(this.#active);
+    const gen = ++this.#prepGen;
+    this.#pending = track;
     this.#render();
-    this.#preparing = true;
-    this.#prep = (async () => {
+    const run = (async () => {
+      let ok = false;
       try {
-        await this.#d.loadToDeck(track, idle);
-        this.#nextLoaded = true;
-        this.#d.ui.status(`next up on Deck ${idle}: ${track.name}`);
+        ok = await this.#d.loadToDeck(track, idle);
       } catch {
-        this.#d.ui.status(`failed to load ${track.name}`);
-      } finally {
-        this.#preparing = false;
-        this.#prep = null;
+        ok = false;
       }
+      if (gen !== this.#prepGen) return; // ejected while loading
+      this.#pending = null;
+      this.#prep = null;
+      if (ok) {
+        this.#headFailures = 0;
+        this.#d.ui.status(`next up on Deck ${idle}: ${track.name}`);
+      } else if (++this.#headFailures < MAX_LOAD_ATTEMPTS) {
+        // Likely a network blip: put it back and retry shortly, rather
+        // than drain the whole queue in a few ticks.
+        this.#queue.unshift(track);
+        this.#retryAt = this.#now() + RETRY_MS;
+        this.#d.ui.status(`couldn't load ${track.name} — retrying…`);
+      } else {
+        this.#headFailures = 0;
+        this.#d.ui.status(`couldn't load ${track.name} — skipped`);
+      }
+      this.#render();
     })();
-    return this.#prep;
-  }
-
-  toggleBeatSync(): boolean {
-    this.beatSync = !this.beatSync;
-    return this.beatSync;
-  }
-
-  /** hook for when an external fade orchestrator (the
-   *  "Fade to next" button) finishes a crossfade. Advances the queue
-   *  state machine the same way the internal `#beginFade` onDone does,
-   *  so the next track preloads on the now-idle deck. */
-  handleExternalFadeDone(toDeck: DeckId): void {
-    if (!this.on) return;
-    this.#active = toDeck;
-    this.#nextLoaded = false;
-    this.#syncToggle();
-    void this.#prepareNext();
-    if (this.#queue.length === 0 && !this.#preparing) {
-      this.#d.ui.status(`automix — last track playing on Deck ${toDeck}`);
-    }
+    this.#prep = run;
+    return run;
   }
 
   #beginFade(): void {
-    if (
-      !this.on ||
-      this.#fadeHandle ||
-      !this.#nextLoaded ||
-      this.#active === null
-    ) {
-      return;
-    }
+    if (this.#fade || this.#active === null || !this.#idleReady()) return;
     const from = this.#active;
     const to = other(from);
-    const deckFrom = this.#d.decks[from];
-    const deckTo = this.#d.decks[to];
-    if (!deckTo.buffer) return;
-
-    // the fade primitive (tempo-match + phase-bend ride +
-    // rAF loop) now lives on Mixer.fadeFromTo so the manual "Fade to
-    // next" button shares it. We keep the queue/state-machine work
-    // here, plumbed in via onDone.
-    this.#fadeHandle = this.#d.mixer.fadeFromTo(deckFrom, deckTo, {
-      durationSec: this.#d.fadeSeconds(),
-      beatSync: this.beatSync,
-      onStatus: (s) => this.#d.ui.status(s),
-      onCrossfade: (pos) => this.#d.ui.setCrossfader(pos),
-      onDone: (info) => {
-        this.#fadeHandle = null;
-        if (info.cancelled) return;
-        deckFrom.stop();
-        this.#d.ui.setDeckName(from, "— no track —");
-        this.#active = to;
-        this.#nextLoaded = false;
-        this.#syncToggle();
-        void this.#prepareNext();
-        if (this.#queue.length === 0 && !this.#preparing) {
-          this.#d.ui.status(`automix — last track playing on Deck ${to}`);
-        }
-      },
+    const handle = this.#d.transition(from, to, ({ cancelled }) => {
+      this.#fade = null;
+      if (cancelled) {
+        // The DJ took the crossfader (or ejected a deck): hand over.
+        // The next tick adopts whichever deck ends up playing.
+        this.#render();
+        return;
+      }
+      // Clear the outgoing deck entirely, so a stale buffer can never be
+      // faded back in if the next preload fails.
+      this.#d.decks[from].unload();
+      this.#d.ui.setDeckName(from, "— no track —");
+      this.#active = to;
+      this.#syncToggle();
+      this.#render();
+      this.#reconcile();
+      if (this.#queue.length === 0 && !this.#pending && !this.#idleReady()) {
+        this.#d.ui.status(`automix — last track playing on Deck ${to}`);
+      }
     });
+    if (!handle) return;
+    this.#fade = handle;
+    this.#render();
+  }
+
+  /** Rescue start: the active track ended; play the idle deck from its cue. */
+  #startNow(): void {
+    if (this.#active === null) return;
+    const from = this.#active;
+    const to = other(from);
+    const d = this.#d.decks[to];
+    d.seek(d.cuePoint);
+    d.play();
+    this.#d.setCrossfade(sideOf(to));
+    this.#d.ui.setCrossfader(sideOf(to));
+    this.#d.decks[from].unload();
+    this.#d.ui.setDeckName(from, "— no track —");
+    this.#active = to;
+    this.#syncToggle();
+    this.#render();
+    this.#d.ui.status(`Deck ${from} ran out — started Deck ${to}`);
   }
 
   #syncToggle(): void {

@@ -1454,6 +1454,24 @@ select.r-q {
   box-shadow: 0 0 14px rgba(56, 224, 196, 0.18);
 }
 
+#queue-list li.q-next {
+  counter-increment: none;
+  cursor: default;
+}
+
+#queue-list li.q-next::before {
+  content: "▶";
+  color: var(--accent);
+}
+
+#queue-list .q-tag {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
 #queue-list li::before {
   content: counter(q);
   color: var(--faint);

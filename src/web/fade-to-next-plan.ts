@@ -19,6 +19,10 @@ export interface OutgoingState {
   currentTime: number;
   /** Effective playback rate (incl. tempo + bend). */
   rate: number;
+  /** Rate from the tempo control alone (no temporary bend). The tempo
+   *  target uses this, so a nudge held at plan time doesn't leak into
+   *  the incoming deck's tempo. Defaults to `rate`. */
+  tempoRate?: number;
   baseBPM: number | null;
   cuePoint: number;
   beats: ArrayLike<number> | null;
@@ -92,7 +96,9 @@ export function planFade(
   incoming: IncomingState,
   opts: PlanOpts,
 ): FadePlan | null {
-  const minLead = opts.minLeadSec ?? 0.05;
+  // Lead time: enough for the audio thread to schedule the incoming
+  // start sample-accurately at the snap point.
+  const minLead = opts.minLeadSec ?? 0.08;
   const now = outgoing.currentTime;
   const minSnap = now + minLead;
 
@@ -146,19 +152,27 @@ export function planFade(
     const isDownbeat = opts.snapTo === "downbeat";
     const halfPeriod = isDownbeat ? 2 * beatLen : beatLen / 2;
     const phase = incoming.downbeatPhase;
-    let nearest: number | null = null;
-    let nearestDist = Infinity;
-    for (let i = 0; i < incoming.beats.length; i++) {
-      const t = incoming.beats[i];
-      if (t === undefined) continue;
-      if (isDownbeat && (i % 4) !== phase) continue;
-      const d = Math.abs(t - incomingStartSec);
-      if (d <= halfPeriod && d < nearestDist) {
-        nearestDist = d;
-        nearest = t;
+    const nearestOnGrid = (downbeatsOnly: boolean, window: number): number | null => {
+      let nearest: number | null = null;
+      let nearestDist = Infinity;
+      for (let i = 0; i < incoming.beats!.length; i++) {
+        const t = incoming.beats![i];
+        if (t === undefined) continue;
+        if (downbeatsOnly && (i % 4) !== phase) continue;
+        const d = Math.abs(t - anchorSec);
+        if (d <= window && d < nearestDist) {
+          nearestDist = d;
+          nearest = t;
+        }
+        if (t > anchorSec + window) break;
       }
-      if (t > incomingStartSec + halfPeriod) break;
-    }
+      return nearest;
+    };
+    // Downbeat wanted but none near the anchor (grid starts later, odd
+    // phase): still land on a beat rather than between two.
+    const nearest =
+      nearestOnGrid(isDownbeat, halfPeriod) ??
+      (isDownbeat ? nearestOnGrid(false, beatLen / 2) : null);
     if (nearest !== null) incomingStartSec = nearest;
   }
 
@@ -170,8 +184,8 @@ export function planFade(
     // playing at ~125, so the incoming deck must land on 125. `rate`
     // folds in the tempo slider and any live pitch bend — the same
     // reference `mixer.fadeFromTo` uses, so both stay consistent.
-    const outBpm =
-      outgoing.baseBPM * (outgoing.rate > 0 ? outgoing.rate : 1);
+    const outRate = outgoing.tempoRate ?? outgoing.rate;
+    const outBpm = outgoing.baseBPM * (outRate > 0 ? outRate : 1);
     const target = octaveMatched(outBpm, incoming.baseBPM);
     const pct = (target / incoming.baseBPM - 1) * 100;
     if (within(pct, 8)) {
@@ -180,6 +194,8 @@ export function planFade(
     } else {
       syncStatus = "tempo gap >8% — plain fade";
     }
+  } else if (opts.beatSync) {
+    syncStatus = "beat sync off: no BPM yet — plain fade";
   }
 
   const status = formatStatus(opts.snapTo, waitMs / 1000, syncStatus);

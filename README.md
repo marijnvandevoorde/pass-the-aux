@@ -41,7 +41,13 @@ You can also drag audio files from your local drive onto the app: drop on a deck
   reverb, gate, flanger, phaser, bit-crush, alarm), one-touch macros,
   and a synth sample-pad grid.
 - **Queue & automix** — auto-crossfades to the next queued track,
-  preloading the idle deck so the blend is seamless.
+  preloading the idle deck so the blend is seamless. Every transition
+  (automatic, the *Fade to next* button, skip) is tempo-matched and
+  started on the audio clock exactly on the next beat or bar, and the
+  next track is cued to its mix-in point (pass-the-beat's first solid
+  downbeat) unless you set a cue on it yourself; your cue sticks for that
+  track. Auto-fill only picks a track when the queue is still empty near
+  the end of the playing one.
 - **Crowd requests** — share a session as a QR code or link; guests open
   the `/crowd` page on their phones to add tracks straight to the queue.
 - **Extended search** — search across your configured remote record

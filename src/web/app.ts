@@ -3,7 +3,13 @@ import { Knob } from "./knob.js";
 import { Mixer } from "./mixer.js";
 import { analyzeFeatures, detectBPM } from "./bpm.js";
 import { Automix } from "./automix.js";
-import { fadeToNext, type SnapTo } from "./fade-to-next.js";
+import {
+  fadeToNext,
+  startTransition,
+  type SnapTo,
+  type TransitionHandle,
+} from "./fade-to-next.js";
+import { CueMemory, mixInPoint } from "./cue-memory.js";
 import { api } from "./api.js";
 import { SessionHistory } from "./session-history.js";
 import { pickNext, type FeatureTrack } from "./auto-select.js";
@@ -55,8 +61,45 @@ const setStatus = (m: string): void => {
 const amStatus = (m: string): void => {
   amStatusEl.textContent = m;
 };
-/** snap target for the manual "Fade to next" button. */
+/** snap target for every transition (manual button and Automix). */
 let snapTo: SnapTo = "downbeat";
+
+/** Cue points the DJ set by hand, per track; they beat the automatic
+ *  mix-in cue, also when the track comes round again. */
+const CUE_MEMORY_KEY = "passtheaux.manualCues";
+const cueMemory = (() => {
+  try {
+    return CueMemory.parse(localStorage.getItem(CUE_MEMORY_KEY));
+  } catch {
+    return new CueMemory();
+  }
+})();
+function rememberManualCue(deck: Deck): void {
+  const key = deck.track?.path ?? deck.track?.id;
+  cueMemory.set(key, deck.cuePoint);
+  try {
+    localStorage.setItem(CUE_MEMORY_KEY, cueMemory.serialize());
+  } catch {
+    /* storage full / disabled — non-fatal */
+  }
+}
+
+/** Preset a deck's cue to the pass-the-beat mix-in point when Automix
+ *  will mix into it: Automix on, the deck isn't the one playing out, and
+ *  the DJ hasn't cued this track by hand. Safe to call repeatedly (load,
+ *  late grid, Automix switched on). */
+function applyAutoCue(id: DeckId): void {
+  const deck = decks[id];
+  if (!automix?.on || !deck?.buffer || deck.isPlaying || deck.cueManual) return;
+  // Only the deck Automix mixes *into*: never the playing/armed one (the
+  // first track of a set starts from its own cue).
+  if (automix.activeDeck === null || automix.activeDeck === id) return;
+  const t = mixInPoint({ firstSolidCueSec: deck.firstSolidCueSec });
+  if (t === null || Math.abs(deck.cuePoint - t) < 0.001) return;
+  if (deck.setAutoCue(t)) {
+    setStatus(`Deck ${id} cued to the mix-in point (${fmtTime(t)}) — set your own cue to override`);
+  }
+}
 
 function fmtTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) s = 0;
@@ -187,9 +230,20 @@ must<HTMLButtonElement>("#start-btn").addEventListener("click", async () => {
 
   automix = new Automix({
     decks,
-    mixer,
     loadToDeck,
     fadeSeconds,
+    transition: (from, to, onDone) =>
+      startTransition(mixer, decks[from], decks[to], {
+        durationSec: fadeSeconds(),
+        beatSync: automix.beatSync,
+        snapTo,
+        onStatus: amStatus,
+        onCrossfade: (pos) => {
+          must<HTMLInputElement>("#xfader").value = String(pos);
+        },
+        onDone,
+      }),
+    setCrossfade: (pos) => mixer.setCrossfade(pos),
     autoFill: autoFillPick,
     ui: {
       status: amStatus,
@@ -201,6 +255,12 @@ must<HTMLButtonElement>("#start-btn").addEventListener("click", async () => {
       setDeckName,
     },
   });
+
+  // `?debug` exposes the engine for in-browser checks (phase alignment,
+  // automix state). Nothing reads it in normal use.
+  if (new URLSearchParams(location.search).has("debug")) {
+    (window as unknown as { __pta: unknown }).__pta = { decks, mixer, automix, ctx };
+  }
 
   wireDeck("A");
   wireDeck("B");
@@ -440,49 +500,63 @@ function renderList(): void {
   }
 }
 
-async function loadToDeck(track: TrackInfo, deckId: DeckId): Promise<void> {
+/** Load a track onto a deck. Resolves true once it's on the deck; false
+ *  when it failed, or a newer load / an eject on that deck superseded it
+ *  while it was downloading or decoding (the deck is then left alone). */
+async function loadToDeck(track: TrackInfo, deckId: DeckId): Promise<boolean> {
   const deck = decks[deckId];
+  const token = deck.beginLoad();
   let buf: ArrayBuffer;
   if (track.path === null) {
     const stored = track.id ? localBuffers.get(track.id) : undefined;
     if (!stored) {
       setStatus("cannot load: local file is no longer in memory");
-      return;
+      return false;
     }
-    buf = stored;
+    // decodeAudioData detaches its input: hand it a copy so the local
+    // file can be loaded again later.
+    buf = stored.slice(0);
   } else {
     history.record(track.path);
+    setStatus(`loading "${track.name}" → Deck ${deckId}…`);
     try {
       buf = await api.getAudio(track.path);
     } catch (e) {
-      setStatus(`load failed: ${(e as Error).message}`);
-      return;
+      if (deck.isCurrentLoad(token)) setStatus(`load failed: ${(e as Error).message}`);
+      return false;
     }
+    if (!deck.isCurrentLoad(token)) return false;
   }
+  // Fetch the grid alongside the decode; it's applied once both are in.
+  const gridP = track.path ? api.getBeatGrid(track.path) : Promise.resolve(null);
   try {
-    setStatus(`loading "${track.name}" → Deck ${deckId}…`);
-    await deck.loadArrayBuffer(buf, track);
-    setDeckName(deckId, track.name + (track.path ? "" : " (local)"));
-    if (track.path) {
-      // pull the server-computed beat grid in the background.
-      void api.getBeatGrid(track.path).then((g) => {
-        if (!g || deck.track?.path !== track.path) return;
-        deck.applyBeatGrid({
-          beats: g.beats,
-          downbeatPhase: g.downbeatPhase,
-          firstSolidCueSec: g.firstSolidCueSec,
-        });
-      });
-    }
-    if (!track.bpm) {
-      setStatus(`analyzing BPM for "${track.name}"…`);
-      await analyzeDeck(deck);
-    } else {
-      setStatus("");
-    }
+    const decoded = await deck.loadArrayBuffer(buf, track, token);
+    if (!decoded) return false; // superseded while decoding
   } catch (e) {
-    setStatus(`load failed: ${(e as Error).message}`);
+    if (deck.isCurrentLoad(token)) setStatus(`load failed: ${(e as Error).message}`);
+    return false;
   }
+  setDeckName(deckId, track.name + (track.path ? "" : " (local)"));
+  const manual = cueMemory.get(track.path ?? track.id);
+  if (manual !== null) deck.setManualCue(manual);
+  void gridP.then((g) => {
+    if (!g || !deck.isCurrentLoad(token)) return;
+    deck.applyBeatGrid({
+      beats: g.beats,
+      downbeatPhase: g.downbeatPhase,
+      firstSolidCueSec: g.firstSolidCueSec,
+    });
+    // The grid can land after the track was queued / preloaded: preset
+    // the mix-in cue now.
+    applyAutoCue(deckId);
+  });
+  if (!track.bpm) {
+    setStatus(`analyzing BPM for "${track.name}"…`);
+    await analyzeDeck(deck);
+  } else {
+    setStatus("");
+  }
+  return deck.isCurrentLoad(token);
 }
 
 async function analyzeDeck(deck: Deck): Promise<void> {
@@ -608,6 +682,29 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   if (emptyEl) emptyEl.hidden = queue.length > 0;
   const fabEl = document.getElementById("mob-fab-library");
   if (fabEl) fabEl.hidden = queue.length > 0;
+
+  // The track already lined up on the idle deck has left the queue
+  // array, but it's what plays next: show it pinned on top, with a way
+  // to drop it (the new queue head then takes its place).
+  const next = mix.nextUp;
+  if (next) {
+    const li = document.createElement("li");
+    li.className = "cued q-next";
+    li.title = `Lined up on Deck ${next.deck}`;
+    li.innerHTML = `
+      <span class="q-name"><span class="q-tag">NEXT · DECK ${next.deck}${
+        next.loading ? " · loading…" : mix.fading ? " · mixing in" : ""
+      }</span>${esc(next.track.name)}</span>
+      <span class="q-bpm ${next.track.bpm ? "" : "missing"}">${next.track.bpm ? Math.round(next.track.bpm) : "—"}</span>
+      <span class="q-actions">
+        <button data-q="rm" title="Drop it; the next queued track takes its place" aria-label="Drop the lined-up track">✕</button>
+      </span>`;
+    const rm = must<HTMLButtonElement>('[data-q="rm"]', li);
+    rm.disabled = mix.fading;
+    rm.onclick = () => mix.eject(next.deck);
+    list.appendChild(li);
+  }
+
   queue.forEach((t, i) => {
     const li = document.createElement("li");
     li.draggable = true;
@@ -863,6 +960,7 @@ function wireDeck(id: DeckId): void {
       deck.seek(deck.cuePoint);
     } else {
       deck.setCue();
+      rememberManualCue(deck);
       setStatus(`Deck ${id} cue set @ ${fmtTime(deck.cuePoint)}`);
     }
   };
@@ -1259,6 +1357,8 @@ function wireGlobal(): void {
   must<HTMLButtonElement>("#am-toggle").onclick = () => {
     automix.toggle();
     if (automix.on) {
+      applyAutoCue("A");
+      applyAutoCue("B");
       const cur = desiredSessionId();
       const ans = window.prompt("Session id for guests to join:", cur);
       sidEl.value = cleanId(ans ?? "") || cur;
@@ -1316,26 +1416,33 @@ function wireGlobal(): void {
   });
 
   // the manual "Fade to next" button. Always snaps to the
-  // configured beat/bar, regardless of Automix state. When Automix is
-  // on, the queue still advances via handleExternalFadeDone.
+  // configured beat/bar, regardless of Automix state.
   const xfaderEl = must<HTMLInputElement>("#xfader");
+  // Under Automix the button goes through Automix, so it knows a fade is
+  // running (no second automatic fade on top) and advances the queue.
+  // Off Automix it's a one-shot with its own in-flight guard.
+  let manualFade: TransitionHandle | null = null;
   const triggerFade = (): void => {
-    fadeToNext({
+    if (automix.on) {
+      void automix.fadeNow();
+      return;
+    }
+    if (manualFade) return;
+    manualFade = fadeToNext({
       decks,
       mixer,
       fadeSeconds: fadeSeconds(),
       beatSync: automix.beatSync,
       snapTo,
-      // Plan/sync status not surfaced — the crossfader animation is the
-      // visible feedback. Errors (no second deck loaded, etc.) land in
-      // the main #status line as before.
-      onStatus: () => {},
+      onStatus: setStatus,
       onCrossfade: (pos) => {
         xfaderEl.value = String(pos);
       },
       onDone: (info) => {
         setDeckName(info.from, "— no track —");
-        if (automix.on) automix.handleExternalFadeDone(info.to);
+      },
+      onSettled: () => {
+        manualFade = null;
       },
     });
   };
@@ -1605,7 +1712,11 @@ function wireGlobal(): void {
 
   // Drive automix tick() from a timer so crossfades complete when rAF is throttled
   // (e.g. tab hidden, screen locked). 500 ms is fast enough to catch end-of-track.
-  setInterval(() => automix.tick(), 500);
+  setInterval(() => {
+    automix.tick();
+    backgroundTick();
+    retryMissingGrids();
+  }, 500);
 
   // On visibility change: save session immediately (so the offset is current if the
   // tab is closed), and reset any in-flight scrubber drag.
@@ -2619,31 +2730,68 @@ function render(): void {
     }
   }
 
-  const tnow = performance.now();
-  if (tnow - lastSessionSave > 3000) {
-    lastSessionSave = tnow;
-    saveSession(); // persist config/queue/played/offset
-    if (sessionId && automix.on) {
-      // report what we've played, pull crowd adds, append them
-      // live to the automix queue. Also push the currently-playing
-      // track so the crowd page can show "Now Playing".
-      const sid = sessionId;
-      const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
-      const nowPlaying = playingDeck?.track
-        ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path, by: null }
-        : null;
-      void api.syncSession(sid, history.snapshot(), nowPlaying).then((pending) => {
-        for (const t of pending) {
-          if (history.has(t.path)) continue;
-          automix.enqueue({ name: t.name, path: t.path, bpm: t.bpm });
-          history.record(t.path);
-        }
-        if (pending.length > 0) renderQueue(automix.queue, automix);
-      });
-    }
-  }
-
   requestAnimationFrame(render);
+}
+
+/** A deck whose track had no grid yet when it loaded (the background
+ *  sweep hadn't reached it) asks again every 20 s, so it gets beat sync
+ *  and its mix-in cue as soon as the grid exists. */
+const gridRetryAt: Record<DeckId, number> = { A: 0, B: 0 };
+function retryMissingGrids(): void {
+  const now = performance.now();
+  for (const id of ["A", "B"] as const) {
+    const deck = decks[id];
+    const path = deck?.track?.path;
+    if (!deck?.buffer || !path || deck.beats || now < gridRetryAt[id]) continue;
+    gridRetryAt[id] = now + 20_000;
+    const token = deck.currentLoadToken();
+    void api.getBeatGrid(path).then((g) => {
+      if (!g || !deck.isCurrentLoad(token) || deck.track?.path !== path) return;
+      deck.applyBeatGrid({
+        beats: g.beats,
+        downbeatPhase: g.downbeatPhase,
+        firstSolidCueSec: g.firstSolidCueSec,
+      });
+      applyAutoCue(id);
+    });
+  }
+}
+
+/** Session autosave + crowd sync. Runs on a timer, not in the rAF render
+ *  loop: rAF stops in a hidden tab, and a set must keep taking crowd
+ *  requests with the laptop lid half closed. */
+let crowdSyncInFlight = false;
+function backgroundTick(): void {
+  const tnow = performance.now();
+  if (tnow - lastSessionSave < 3000) return;
+  lastSessionSave = tnow;
+  saveSession(); // persist config/queue/played/offset
+  if (!sessionId || !automix.on || crowdSyncInFlight) return;
+  // report what we've played, pull crowd adds, append them
+  // live to the automix queue. Also push the currently-playing
+  // track so the crowd page can show "Now Playing".
+  const sid = sessionId;
+  const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
+  const nowPlaying = playingDeck?.track
+    ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path, by: null }
+    : null;
+  crowdSyncInFlight = true;
+  void api
+    .syncSession(sid, history.snapshot(), nowPlaying)
+    .then((pending) => {
+      for (const t of pending) {
+        if (history.has(t.path)) continue;
+        if (automix.queue.some((q) => q.path === t.path)) continue;
+        automix.enqueue({ name: t.name, path: t.path, bpm: t.bpm });
+        history.record(t.path);
+      }
+    })
+    .catch(() => {
+      /* offline for a moment — the next tick retries */
+    })
+    .finally(() => {
+      crowdSyncInFlight = false;
+    });
 }
 
 function drawWave(deck: Deck, canvas: HTMLCanvasElement, id: DeckId): void {
