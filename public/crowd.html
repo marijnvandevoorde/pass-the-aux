@@ -23,7 +23,7 @@
       <div class="app-title">Pass the Aux</div>
       <div class="session-meta">
         <span class="live-dot"></span>
-        <span class="listeners" id="guestCount"><b>—</b> in the room</span>
+        <span class="listeners" id="guestCount">Live party</span>
       </div>
     </div>
     <button class="guest-chip" id="guestChip" title="Change name">
@@ -127,6 +127,11 @@
       <div class="np-times"><span id="npElapsed">0:00</span><span id="npRemain"></span></div>
       <div class="np-req" id="npReqBy"></div>
     </div><!-- /.np-body -->
+    <!-- Big-screen (party screen) only: lets the room join from the TV. -->
+    <div class="np-join" aria-hidden="true">
+      <div class="np-join-qr" id="npJoinQr"></div>
+      <div class="np-join-txt">Scan to request a song</div>
+    </div>
   </div>
 
   <div class="name-gate" id="nameGate">

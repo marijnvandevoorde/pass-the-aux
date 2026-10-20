@@ -120,6 +120,18 @@ export class Automix {
     return this.#fade !== null;
   }
 
+  /** Seconds until the automatic fade starts, or null when none is due
+   *  (off, nothing lined up, active deck paused, fade under way). */
+  get secondsToMix(): number | null {
+    if (!this.on || this.#fade || this.#active === null || !this.#idleReady()) return null;
+    const act = this.#d.decks[this.#active];
+    if (!act.isPlaying) return null;
+    const rate = act.rate > 0 ? act.rate : 1;
+    const remaining = (act.duration - act.currentTime) / rate;
+    const bar = act.beatLengthSec ? (4 * act.beatLengthSec) / rate : 2;
+    return Math.max(0, remaining - this.#d.fadeSeconds() - bar);
+  }
+
   /** The track lined up on the idle deck (loaded or loading), if any. */
   get nextUp(): NextUp | null {
     if (this.#active === null) return null;

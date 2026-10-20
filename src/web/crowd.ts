@@ -3,7 +3,8 @@ import type { NowPlaying, SessionQueueItem } from "./api.js";
 import type { LibraryResponse, RemoteTrackInfo } from "./types.js";
 import { applyKeyVars, keyHue } from "./key-utils.js";
 import { createWaveform } from "./waveform.js";
-import { byId as must, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip } from "./dom-utils.js";
+import { qrMatrix } from "./qr.js";
+import { byId as must, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip, metaParts } from "./dom-utils.js";
 
 type LibTrack = LibraryResponse["tracks"][number];
 
@@ -125,7 +126,7 @@ function renderNowPlaying(): void {
     nowKeyLabelEl.textContent = "—";
     nowBpmValEl.textContent = "—";
     npTitleEl.textContent = "—";
-    npArtistEl.textContent = "";
+    npArtistEl.textContent = "Waiting for the DJ…";
     npKeyLabelEl.textContent = "—";
     npBpmValEl.textContent = "—";
     reqByEl.innerHTML = "";
@@ -233,8 +234,10 @@ function renderPlayed(): void {
       <div class="q-info">
         <div class="q-name">${esc(tr.title ?? tr.name)}</div>
         <div class="q-meta">
-          ${camelot ? `<span class="q-key">${esc(camelot)}</span><span class="q-dot">·</span>` : ""}
-          ${tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : ""}
+          ${metaParts([
+            camelot ? `<span class="q-key">${esc(camelot)}</span>` : "",
+            tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : "",
+          ])}
         </div>
       </div>`;
     playedBodyEl.appendChild(el);
@@ -275,9 +278,11 @@ function renderCrate(filter = ""): void {
       <div class="lib-info">
         <div class="lib-name">${esc(tr.title ?? tr.name)}</div>
         <div class="lib-meta">
-          ${camelot ? `<span class="q-key">${esc(camelot)}</span><span class="q-dot">·</span>` : ""}
-          ${tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : ""}
-          ${tr.artist ? `<span class="q-dot">·</span><span style="color:var(--faint)">${esc(tr.artist)}</span>` : ""}
+          ${metaParts([
+            camelot ? `<span class="q-key">${esc(camelot)}</span>` : "",
+            tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : "",
+            tr.artist ? `<span style="color:var(--faint)">${esc(tr.artist)}</span>` : "",
+          ])}
         </div>
       </div>
       ${btn}`;
@@ -328,7 +333,37 @@ tabCrateEl.addEventListener("click", () => switchTab("crate"));
 fabCrateEl.addEventListener("click", () => switchTab("crate"));
 
 // ── Fullscreen now playing ──
+// On a big screen (laptop on the TV) the fullscreen view doubles as the
+// party screen: it fills the display and shows a join QR.
+function renderJoinQr(): void {
+  const box = must<HTMLDivElement>("npJoinQr");
+  if (box.childElementCount > 0 || !sessionId) return;
+  const matrix = qrMatrix(`${location.origin}/crowd?s=${encodeURIComponent(sessionId)}`);
+  if (!matrix) return;
+  const n = matrix.length;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `-2 -2 ${n + 4} ${n + 4}`);
+  const bg = document.createElementNS(NS, "rect");
+  bg.setAttribute("x", "-2");
+  bg.setAttribute("y", "-2");
+  bg.setAttribute("width", String(n + 4));
+  bg.setAttribute("height", String(n + 4));
+  bg.setAttribute("fill", "#fff");
+  svg.appendChild(bg);
+  let d = "";
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) if (matrix[r]?.[c]) d += `M${c} ${r}h1v1h-1z`;
+  }
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", "#0a0a0a");
+  svg.appendChild(path);
+  box.appendChild(svg);
+}
+
 nowHeroEl.addEventListener("click", () => {
+  renderJoinQr();
   npFullEl.classList.add("open");
   npFullEl.classList.toggle("playing", isPlaying);
 });

@@ -90,8 +90,8 @@
           <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
           <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
           <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
-          <button class="nudge-down" title="Nudge / pitch-bend behind the beat">‹ NDG</button>
-          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat">NDG ›</button>
+          <button class="nudge-down" title="Nudge / pitch-bend behind the beat"aria-label="Nudge back">‹ NDG</button>
+          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat"aria-label="Nudge ahead">NDG ›</button>
           <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
           <button class="eject" title="Eject / skip this deck">⏏</button>
         </div>
@@ -138,16 +138,19 @@
         <div class="xf-labels"><span>A</span><span>B</span></div>
         <div class="xf-controls">
           <button id="am-fade" title="Crossfade the two decks, snapped to the next beat or bar">⏭ Fade to next</button>
-          <input
-            id="am-secs"
-            type="number"
-            min="1"
-            max="30"
-            step="1"
-            value="8"
-            title="Fade duration (seconds)"
-            aria-label="Fade duration in seconds"
-          />
+          <label class="xf-secs" title="Fade duration (seconds)">
+            <span>FADE</span>
+            <input
+              id="am-secs"
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              value="8"
+              aria-label="Fade duration in seconds"
+            />
+            <span>s</span>
+          </label>
           <div id="xf-snap" class="xf-snap" role="radiogroup" aria-label="Snap fade to">
             <button type="button" data-snap="downbeat" class="on" aria-pressed="true" title="Wait for the next bar (4-beat boundary)">BAR</button>
             <button type="button" data-snap="beat" aria-pressed="false" title="Wait for the next beat">BEAT</button>
@@ -179,8 +182,8 @@
           <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
           <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
           <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
-          <button class="nudge-down" title="Nudge / pitch-bend behind the beat">‹ NDG</button>
-          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat">NDG ›</button>
+          <button class="nudge-down" title="Nudge / pitch-bend behind the beat"aria-label="Nudge back">‹ NDG</button>
+          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat"aria-label="Nudge ahead">NDG ›</button>
           <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
           <button class="eject" title="Eject / skip this deck">⏏</button>
         </div>
@@ -359,7 +362,8 @@
               title="Reset the played-tracks history so guests can re-request any song"
             >Reset played</button>
             <button id="am-autofill" class="am-off">AUTO-FILL: OFF</button>
-            <span id="am-status">queue empty</span>
+            <span id="am-status" role="status">queue empty</span>
+            <span id="am-countdown" aria-live="off"></span>
           </div>
           <ol id="queue-list"></ol>
           <!-- Mobile empty state (hidden when queue has items) -->
