@@ -22,7 +22,10 @@ import { SessionStore } from "./infrastructure/session-store.ts";
 import { Id3TagReader } from "./infrastructure/id3-tag-reader.ts";
 import { buildRemoteSource } from "./infrastructure/remote-source-factory.ts";
 import { MysqlRemoteLibrariesRepository } from "./infrastructure/mysql-remote-libraries-repository.ts";
-import type { RemoteLibrariesRepository } from "./domain/ports/remote-libraries-repository.ts";
+import type {
+  RemoteLibrariesRepository,
+  RemoteLibraryRow,
+} from "./domain/ports/remote-libraries-repository.ts";
 import { ManageRemoteLibraries } from "./application/manage-remote-libraries.ts";
 import { FsLibraryWriter } from "./infrastructure/fs-library-writer.ts";
 import { ListLibrary } from "./application/list-library.ts";
@@ -37,7 +40,6 @@ import { AnalyzeLibrary } from "./application/analyze-library.ts";
 import { BuildBeatGrids } from "./application/build-beat-grids.ts";
 import { GetBeatGrid } from "./application/get-beat-grid.ts";
 import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
-import type { RemoteLibraryRow } from "./domain/ports/remote-libraries-repository.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
