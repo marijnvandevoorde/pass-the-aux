@@ -2,6 +2,7 @@ import type { AnalysisRepository } from "../domain/ports/analysis-repository.ts"
 import type { AudioAnalyzer } from "../domain/ports/audio-analyzer.ts";
 import type { BeatGridRepository } from "../domain/ports/beat-grid-repository.ts";
 import { AnalyzerUnavailableError } from "../domain/errors.ts";
+import type { GridDemand } from "./grid-demand.ts";
 
 /**
  * backfill: walks every track in the user's library and
@@ -18,6 +19,10 @@ import { AnalyzerUnavailableError } from "../domain/errors.ts";
  * and BPM must agree for beat-sync. If the analyzer is unavailable the
  * run stops early and nothing is stored, so a track is never left with
  * a fallback result marked as done.
+ *
+ * Tracks in {@link GridDemand} (loaded, queued, crowd requests) go
+ * first; demand is checked again before every track, so a track queued
+ * mid-run is next instead of waiting for the rest of the library.
  */
 /** Per-track failures (the analyzer crashed on it) before the track is
  *  stored as "no grid" so it stops being retried. */
@@ -32,20 +37,25 @@ export class BuildBeatGrids {
   readonly #grids: BeatGridRepository;
   readonly #analyzer: AudioAnalyzer;
   readonly #userId: string;
+  readonly #demand: GridDemand | null;
 
   constructor(
     analyses: AnalysisRepository,
     grids: BeatGridRepository,
     analyzer: AudioAnalyzer,
     userId = "",
+    demand: GridDemand | null = null,
   ) {
     this.#analyses = analyses;
     this.#grids = grids;
     this.#analyzer = analyzer;
     this.#userId = userId;
+    this.#demand = demand;
   }
 
-  async execute(): Promise<{
+  /** `wantedOnly`: only the tracks in demand (the sweep runs this before
+   *  the long per-library analysis). */
+  async execute(opts: { wantedOnly?: boolean } = {}): Promise<{
     scanned: number;
     built: number;
     unavailable: boolean;
@@ -54,8 +64,19 @@ export class BuildBeatGrids {
     const strikes = (id: string): number => this.#strikes.get(id) ?? 0;
     // Stable sort: library order, previously failing tracks last.
     const rows = Object.keys(all).sort((a, b) => strikes(a) - strikes(b));
+    const remaining = new Set(rows);
+    let cursor = 0;
+    const pick = (): string | undefined => {
+      const wanted = this.#demand?.next(this.#userId, remaining);
+      if (wanted !== undefined) return wanted;
+      if (opts.wantedOnly === true) return undefined;
+      while (cursor < rows.length && !remaining.has(rows[cursor]!)) cursor++;
+      return rows[cursor];
+    };
     let built = 0;
-    for (const id of rows) {
+    for (let id = pick(); id !== undefined; id = pick()) {
+      remaining.delete(id);
+      let handled = true;
       try {
         const existing = await this.#grids.get(this.#userId, id);
         if (
@@ -84,6 +105,7 @@ export class BuildBeatGrids {
         // Engine down: the rest would fail the same way. Stop; the next
         // sweep tries the others first and this track last.
         if (e instanceof AnalyzerUnavailableError) {
+          handled = false; // still wanted: first in line when it's back
           return { scanned: rows.length, built, unavailable: true };
         }
         // Per-track failure: retried on later sweeps, until it has failed
@@ -101,6 +123,8 @@ export class BuildBeatGrids {
           });
           this.#strikes.delete(id);
         }
+      } finally {
+        if (handled) this.#demand?.done(this.#userId, id);
       }
     }
     return { scanned: rows.length, built, unavailable: false };

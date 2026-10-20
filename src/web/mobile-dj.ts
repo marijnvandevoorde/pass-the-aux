@@ -497,6 +497,7 @@ function mixLinkHTML(a: QueueItem, b: QueueItem): string {
 
 // ── Queue render ──
 function renderQueue(): void {
+  api.wantGrids(queue.map((q) => q.path));
   queueCountEl.textContent = String(queue.length);
   queueListEl.innerHTML = "";
   queueEmptyEl.classList.toggle("visible", queue.length === 0);

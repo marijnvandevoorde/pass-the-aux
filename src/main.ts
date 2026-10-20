@@ -36,6 +36,7 @@ import { EnrichLibrary } from "./application/enrich-library.ts";
 import { AnalyzeLibrary } from "./application/analyze-library.ts";
 import { BuildBeatGrids } from "./application/build-beat-grids.ts";
 import { GetBeatGrid } from "./application/get-beat-grid.ts";
+import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
@@ -167,6 +168,9 @@ export function createApp(
   // are rebound per uid; the storage repos take the uid (real user_id
   // column / nested JSON). uid "" → music/ (auth disabled → legacy
   // flat layout, no regression). Memoised per uid.
+  // Tracks that need a beat grid soon (loaded, queued, crowd requests),
+  // shared by every user's BuildBeatGrids.
+  const gridDemand = new GridDemand();
   const cache = new Map<string, UseCases>();
   const useCasesFor = (uid: string): UseCases => {
     const hit = cache.get(uid);
@@ -232,8 +236,9 @@ export function createApp(
         bpmSource,
       ),
       analyzeLibrary: new AnalyzeLibrary(analyses, analyzer, uid),
-      buildBeatGrids: new BuildBeatGrids(analyses, beatGrids, analyzer, uid),
-      getBeatGrid: new GetBeatGrid(beatGrids, uid),
+      buildBeatGrids: new BuildBeatGrids(analyses, beatGrids, analyzer, uid, gridDemand),
+      getBeatGrid: new GetBeatGrid(beatGrids, uid, gridDemand),
+      prioritizeBeatGrids: new PrioritizeBeatGrids(gridDemand, uid),
     };
     cache.set(uid, uc);
     return uc;
@@ -270,6 +275,9 @@ export function createApp(
             try {
               const uc = useCasesFor(uid);
               await uc.enrichLibrary.execute(); // tags/cover/AcousticBrainz
+              // Grids for loaded/queued/requested tracks first: the
+              // library-wide analysis below can take a while.
+              await uc.buildBeatGrids.execute({ wantedOnly: true });
               await uc.analyzeLibrary.execute(); // ffmpeg+DSP bpm/key/energy
               await uc.buildBeatGrids.execute(); // phase grid
             } catch {
@@ -282,11 +290,15 @@ export function createApp(
       }
     };
     let sweepTimer: ReturnType<typeof setTimeout> | undefined;
-    watcher.subscribe(() => {
+    const scheduleSweep = (): void => {
       clearTimeout(sweepTimer);
       sweepTimer = setTimeout(() => void sweepAll(), 2000);
       sweepTimer.unref?.();
-    });
+    };
+    watcher.subscribe(scheduleSweep);
+    // A newly wanted grid: a running sweep picks it up before its next
+    // track; otherwise start one now instead of at the next 5-minute tick.
+    gridDemand.subscribe(scheduleSweep);
     setTimeout(() => void sweepAll(), 1500).unref?.();
     // Safety net: fs.watch can miss events entirely (network mounts,
     // some copy tools, OS-coalesced events). A slow periodic backstop

@@ -695,6 +695,10 @@ function startLiveUpdates(): void {
 }
 
 function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
+  // Dropped local files have no path; the rest get their grids first.
+  api.wantGrids(
+    [mix.nextUp?.track, ...queue].flatMap((t) => (t?.path ? [t.path] : [])),
+  );
   const list = must<HTMLOListElement>("#queue-list");
   list.innerHTML = "";
 
