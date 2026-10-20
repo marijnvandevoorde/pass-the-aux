@@ -101,3 +101,34 @@ test("mobile-dj: landscape shows only the now-playing, hides the workspace", asy
   assert.equal(await isHidden(page, ".workspace"), true, "workspace hidden in landscape");
   assert.equal(await isHidden(page, ".now-hero"), false, "now-playing visible in landscape");
 });
+
+test("mobile-dj: a refresh keeps the queue and the playing track, cued where it was", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openMobileDJ(page);
+  await djAddTracks(page, 3); // one plays, two queued
+  const title = await text(page, "#nowTitle");
+  await page.evaluate(() => {
+    const d = document.getElementById("deckA");
+    d.pause();
+    d.currentTime = 12;
+  });
+  await page.waitForFunction(() => {
+    const s = JSON.parse(localStorage.getItem("pta-mobile-state") ?? "null");
+    return s && s.s.queue.length === 2 && s.s.positionSec >= 11;
+  }, null, { timeout: 5000 });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForFunction((t) => document.getElementById("nowTitle").textContent === t, title, { timeout: 8000 });
+  await page.waitForFunction(() => document.getElementById("timeElapsed").textContent === "0:12", null, { timeout: 8000 });
+  assert.equal(await text(page, "#queueCount"), "2", "both queued tracks are back");
+  assert.equal(await text(page, "#playLabel"), "PAUSED", "waits for a tap to play");
+});
+
+test("mobile-dj: the waveform is the track's real levels from the server", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openMobileDJ(page);
+  const res = page.waitForResponse((r) => r.url().includes("/api/waveform"));
+  await djAddTracks(page, 1);
+  assert.equal((await res).status(), 200, "waveform fetched for the playing track");
+  await page.waitForFunction(() => !document.getElementById("wave").classList.contains("wave-loading"));
+  assert.equal(await page.$$eval("#wave .wave-bar", (b) => b.length), 58);
+});

@@ -13,6 +13,36 @@ export interface NowPlaying {
   path: string | null;
   /** the guest who requested this track, if any. */
   by: string | null;
+  /** Playhead (s) when the DJ reported it, at `nowPlayingAt`. The crowd
+   *  screen extrapolates from it while `playing`. Null from old clients. */
+  positionSec?: number | null;
+  durationSec?: number | null;
+  playing?: boolean;
+}
+
+const finiteNonNeg = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+
+/** Validate the DJ's now-playing report: `null` clears it, `undefined`
+ *  means "no change" (absent or malformed). */
+export function parseNowPlaying(raw: unknown): NowPlaying | null | undefined {
+  if (raw === null) return null;
+  if (typeof raw !== "object" || raw === undefined) return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.name !== "string") return undefined;
+  const durationSec = finiteNonNeg(o.durationSec);
+  let positionSec = finiteNonNeg(o.positionSec);
+  if (positionSec !== null && durationSec !== null) positionSec = Math.min(positionSec, durationSec);
+  return {
+    name: o.name,
+    artist: typeof o.artist === "string" ? o.artist : null,
+    bpm: typeof o.bpm === "number" ? o.bpm : null,
+    path: typeof o.path === "string" ? o.path : null,
+    by: typeof o.by === "string" ? o.by : null,
+    positionSec,
+    durationSec,
+    playing: o.playing === true,
+  };
 }
 
 export interface SessionConfigDTO {
@@ -38,6 +68,32 @@ export interface SessionSnapshot {
   played: string[];
   nowPlaying: NowPlaying | null;
   nowPlayingAt: number | null;
+  /** The DJ's queue as last reported, next first; null until a DJ client
+   *  reports one (older clients), and the crowd shows `pending` then. */
+  upNext: SessionQueueItem[] | null;
+}
+
+/** Most queue entries kept from one report. */
+const MAX_UP_NEXT = 100;
+
+/** Validate the DJ's reported queue: `undefined` when absent/malformed
+ *  (no change), else the well-formed entries, capped. */
+export function parseUpNext(raw: unknown): SessionQueueItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: SessionQueueItem[] = [];
+  for (const it of raw) {
+    if (out.length >= MAX_UP_NEXT) break;
+    if (typeof it !== "object" || it === null) continue;
+    const o = it as Record<string, unknown>;
+    if (typeof o.name !== "string" || typeof o.path !== "string" || o.path === "") continue;
+    out.push({
+      name: o.name.slice(0, 300),
+      path: o.path.slice(0, 1000),
+      bpm: typeof o.bpm === "number" && Number.isFinite(o.bpm) ? o.bpm : null,
+      by: typeof o.by === "string" ? o.by.slice(0, 40) : null,
+    });
+  }
+  return out;
 }
 
 interface Entry {
@@ -51,6 +107,7 @@ interface Entry {
   ownerUserId: string;
   nowPlaying: NowPlaying | null;
   nowPlayingAt: number | null;
+  upNext: SessionQueueItem[] | null;
 }
 
 function newId(): string {
@@ -93,6 +150,7 @@ export class SessionStore {
         ownerUserId,
         nowPlaying: null,
         nowPlayingAt: null,
+        upNext: null,
       });
       return wanted;
     }
@@ -106,6 +164,7 @@ export class SessionStore {
       ownerUserId,
       nowPlaying: null,
       nowPlayingAt: null,
+      upNext: null,
     });
     return id;
   }
@@ -129,7 +188,13 @@ export class SessionStore {
       played: [...e.played],
       nowPlaying: e.nowPlaying,
       nowPlayingAt: e.nowPlayingAt,
+      upNext: e.upNext ? [...e.upNext] : null,
     };
+  }
+
+  setUpNext(id: string, items: SessionQueueItem[]): void {
+    const e = this.#m.get(id);
+    if (e) e.upNext = items;
   }
 
   setNowPlaying(id: string, track: NowPlaying | null): void {

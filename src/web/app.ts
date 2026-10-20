@@ -12,6 +12,7 @@ import {
 import { CueMemory, mixInPoint } from "./cue-memory.js";
 import { TempoGlide } from "./tempo-glide.js";
 import { api } from "./api.js";
+import type { SessionQueueItem } from "./api.js";
 import { SessionHistory } from "./session-history.js";
 import { pickNext, type FeatureTrack } from "./auto-select.js";
 import { energyLabel } from "./energy-label.js";
@@ -2403,6 +2404,15 @@ function deckSnapshot(d: Deck): SessionDeck | null {
     : null;
 }
 
+/** What plays next, for the crowd's Up Next: the track lined up on the
+ *  idle deck, then the queue. */
+function crowdUpNext(): SessionQueueItem[] {
+  const lined = automix.nextUp?.track;
+  return [...(lined ? [lined] : []), ...automix.queue]
+    .filter((t): t is TrackInfo & { path: string } => !!t.path)
+    .map((t) => ({ name: t.name, path: t.path, bpm: t.bpm, by: null }));
+}
+
 function saveSession(): void {
   const playing = [decks.A, decks.B].find(
     (d) => d.isPlaying && d.track && d.track.path,
@@ -2855,11 +2865,20 @@ function backgroundTick(): void {
   const sid = sessionId;
   const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
   const nowPlaying = playingDeck?.track
-    ? { name: playingDeck.track.name, artist: null, bpm: playingDeck.track.bpm, path: playingDeck.track.path, by: null }
+    ? {
+        name: playingDeck.track.name,
+        artist: null,
+        bpm: playingDeck.track.bpm,
+        path: playingDeck.track.path,
+        by: null,
+        positionSec: playingDeck.currentTime,
+        durationSec: playingDeck.duration || null,
+        playing: true,
+      }
     : null;
   crowdSyncInFlight = true;
   void api
-    .syncSession(sid, history.snapshot(), nowPlaying)
+    .syncSession(sid, history.snapshot(), nowPlaying, crowdUpNext())
     .then((pending) => {
       for (const t of pending) {
         if (history.has(t.path)) continue;

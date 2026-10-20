@@ -16,9 +16,8 @@
     "deploy": "scripts/deploy.sh",
     "test": "node --test \"test/**/*.test.ts\"",
     "seed-db": "node test/visual/seed-db.mjs",
-    "visual-server": "ENV_FILE=/dev/null MUSIC_DIR=./music SQLITE_PATH=test/visual/test.sqlite node server.ts",
-    "visual-test": "node test/visual/mobile.mjs",
-    "visual-update": "node test/visual/mobile.mjs --update",
+    "visual-test": "npm run build && node test/visual/visual.mjs",
+    "visual-update": "npm run build && node test/visual/visual.mjs --update",
     "test:e2e": "npm run build && node test/e2e/run.mjs"
   },
   "devDependencies": {

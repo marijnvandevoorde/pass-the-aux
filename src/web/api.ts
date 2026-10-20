@@ -69,6 +69,26 @@ export const api = {
   /** per-track beat grid. Returns null when no grid exists
    *  yet (background analysis hasn't reached this track), 404, or
    *  on any error — callers fall back to BPM-only math. */
+  /** A track's overview waveform (levels 0–100) for the mobile DJ and
+   *  the crowd screen. Cached per page; null when there is none (yet).
+   *  `session` scopes the lookup to the DJ's library for crowd guests. */
+  getWaveform(path: string, session?: string): Promise<WaveformResponse | null> {
+    const key = `${session ?? ""}|${path}`;
+    const hit = waveformCache.get(key);
+    if (hit) return hit;
+    const qs = new URLSearchParams({ path });
+    if (session) qs.set("s", session);
+    const p = fetch("/api/waveform?" + qs.toString())
+      .then(async (res) => (res.ok ? ((await res.json()) as WaveformResponse) : null))
+      .catch(() => null)
+      .then((w) => {
+        if (w === null) waveformCache.delete(key); // retry next time
+        return w;
+      });
+    waveformCache.set(key, p);
+    return p;
+  },
+
   async getBeatGrid(path: string): Promise<BeatGridResponse | null> {
     try {
       const res = await fetch(
@@ -289,19 +309,15 @@ export const api = {
   async syncSession(
     id: string,
     played: string[],
-    nowPlaying?: {
-      name: string;
-      artist: string | null;
-      bpm: number | null;
-      path: string | null;
-      by: string | null;
-    } | null,
+    nowPlaying?: NowPlaying | null,
+    /** The DJ's queue, next first, for the crowd's Up Next. */
+    upNext?: SessionQueueItem[],
   ): Promise<SessionQueueItem[]> {
     try {
       const res = await fetch("/api/session/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, played, nowPlaying }),
+        body: JSON.stringify({ id, played, nowPlaying, upNext }),
       });
       if (!res.ok) return [];
       const body = (await res.json()) as { pending?: SessionQueueItem[] };
@@ -386,6 +402,15 @@ export interface SessionQueueItem {
   by: string | null;
 }
 
+export interface WaveformResponse {
+  path: string;
+  durationSec: number;
+  /** Loudness per slice, 0–100. */
+  peaks: number[];
+}
+
+const waveformCache = new Map<string, Promise<WaveformResponse | null>>();
+
 export interface NowPlaying {
   name: string;
   artist: string | null;
@@ -393,6 +418,11 @@ export interface NowPlaying {
   path: string | null;
   /** the guest who requested this track, if any. */
   by: string | null;
+  /** Playhead (s) at the moment of the report (`nowPlayingAt` on the
+   *  server), so the crowd screen can show real progress. */
+  positionSec?: number | null;
+  durationSec?: number | null;
+  playing?: boolean;
 }
 
 export interface SessionSnapshot {
@@ -408,4 +438,8 @@ export interface SessionSnapshot {
   played: string[];
   nowPlaying: NowPlaying | null;
   nowPlayingAt: number | null;
+  /** The DJ's queue, next first; null/absent from older DJ clients. */
+  upNext?: SessionQueueItem[] | null;
+  /** Server clock when the snapshot was made (absent on old servers). */
+  serverTime?: number;
 }

@@ -40,6 +40,8 @@ import { AnalyzeLibrary } from "./application/analyze-library.ts";
 import { BuildBeatGrids } from "./application/build-beat-grids.ts";
 import { GetBeatGrid } from "./application/get-beat-grid.ts";
 import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
+import { GetWaveform } from "./application/get-waveform.ts";
+import { FfmpegWaveformSource } from "./infrastructure/ffmpeg-waveform-source.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
@@ -202,9 +204,8 @@ export function createApp(
     const writer: LibraryWriter = bucket
       ? new S3LibraryWriter(bucket, prefix, () => notifier.emit())
       : new FsLibraryWriter(dir);
-    const local = new FfmpegAudioAnalyzer(
-      bucket ? s3LocalFiles(bucket, prefix) : dir,
-    );
+    const localFiles = bucket ? s3LocalFiles(bucket, prefix) : dir;
+    const local = new FfmpegAudioAnalyzer(localFiles);
     // The analysis engine that enriches `analysis` + builds
     // beat grids. `local` is the in-house ffmpeg + Ellis-DP DSP;
     // `pass-the-beat` routes through the sidecar (and wraps the local
@@ -249,6 +250,7 @@ export function createApp(
       buildBeatGrids: new BuildBeatGrids(analyses, beatGrids, analyzer, uid, gridDemand),
       getBeatGrid: new GetBeatGrid(beatGrids, uid, gridDemand),
       prioritizeBeatGrids: new PrioritizeBeatGrids(gridDemand, uid),
+      getWaveform: new GetWaveform(new FfmpegWaveformSource(localFiles)),
     };
     cache.set(uid, uc);
     return uc;

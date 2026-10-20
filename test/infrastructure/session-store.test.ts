@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   SessionStore,
   sanitizeSessionId,
+  parseNowPlaying,
+  parseUpNext,
 } from "../../src/infrastructure/session-store.ts";
 
 const cfg = { automix: true, autoFill: false, beatSync: true, fadeSeconds: 8, showUpNext: true };
@@ -117,4 +119,47 @@ test("clearPlayed leaves the pending queue intact", () => {
     s.get(id)?.pending.map((p) => p.path),
     ["a.mp3", "b.mp3"],
   );
+});
+
+test("parseNowPlaying: keeps a valid playhead, clamps it to the duration", () => {
+  const np = parseNowPlaying({ name: "A", path: "a.mp3", positionSec: 300, durationSec: 240, playing: true });
+  assert.ok(np);
+  assert.equal(np.positionSec, 240);
+  assert.equal(np.durationSec, 240);
+  assert.equal(np.playing, true);
+});
+
+test("parseNowPlaying: old clients and junk numbers give null playhead, not NaN", () => {
+  const np = parseNowPlaying({ name: "A", positionSec: -3, durationSec: "x" });
+  assert.ok(np);
+  assert.equal(np.positionSec, null);
+  assert.equal(np.durationSec, null);
+  assert.equal(np.playing, false);
+});
+
+test("parseNowPlaying: null clears, malformed means no change", () => {
+  assert.equal(parseNowPlaying(null), null);
+  assert.equal(parseNowPlaying(undefined), undefined);
+  assert.equal(parseNowPlaying({ artist: "no name" }), undefined);
+  assert.equal(parseNowPlaying("A"), undefined);
+});
+
+test("the DJ's reported queue is kept and served; null until reported", () => {
+  const s = new SessionStore();
+  const id = s.create(cfg);
+  assert.equal(s.get(id)?.upNext, null);
+  s.setUpNext(id, [item("a.mp3"), item("b.mp3")]);
+  assert.deepEqual(s.get(id)?.upNext?.map((t) => t.path), ["a.mp3", "b.mp3"]);
+});
+
+test("parseUpNext: drops malformed entries, caps the list, absent means no change", () => {
+  assert.equal(parseUpNext(undefined), undefined);
+  assert.equal(parseUpNext("nope"), undefined);
+  const out = parseUpNext([{ name: "A", path: "a.mp3", bpm: 120, by: "Ann" }, { name: "no path" }, null, { name: "B", path: "b.mp3", bpm: "x" }]);
+  assert.deepEqual(out, [
+    { name: "A", path: "a.mp3", bpm: 120, by: "Ann" },
+    { name: "B", path: "b.mp3", bpm: null, by: null },
+  ]);
+  const many = Array.from({ length: 500 }, (_, i) => ({ name: `t${i}`, path: `t${i}.mp3` }));
+  assert.equal(parseUpNext(many)?.length, 100);
 });

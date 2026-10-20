@@ -80,3 +80,15 @@ test("flow: DJ 'show queue to crowd' toggle propagates to the crowd live", async
   );
   assert.ok(true, "crowd hid Up Next after the DJ toggled it off");
 });
+
+test("flow: the crowd's Up Next shows the DJ's real queue", async ({ page, context }) => {
+  await page.setViewportSize(PHONE);
+  const sid = await openMobileDJ(page);
+  await djAddTracks(page, 3); // one plays, two queued on the phone
+  await page.waitForTimeout(4500); // one DJ sync
+  const guest = await context.newPage();
+  await guest.setViewportSize(PHONE);
+  await joinCrowd(guest, sid, "Robin");
+  await guest.waitForFunction(() => document.querySelectorAll("#queueList .queue-item").length === 2, null, { timeout: 5000 });
+  assert.equal(await text(guest, "#queueCount"), "2");
+});

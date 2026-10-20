@@ -17,8 +17,9 @@ import type { BuildBeatGrids } from "../../application/build-beat-grids.ts";
 import type { GetBeatGrid } from "../../application/get-beat-grid.ts";
 import { mixOutCueSec } from "../../domain/beat-grid.ts";
 import type { PrioritizeBeatGrids } from "../../application/grid-demand.ts";
+import type { GetWaveform } from "../../application/get-waveform.ts";
 import type { Config } from "../../infrastructure/config.ts";
-import type { SessionStore } from "../../infrastructure/session-store.ts";
+import { parseNowPlaying, parseUpNext, type SessionStore } from "../../infrastructure/session-store.ts";
 import type { AuthService } from "../../application/auth-service.ts";
 import { sendJson, sendError } from "./responder.ts";
 import { readJsonBody } from "./body.ts";
@@ -48,6 +49,7 @@ export interface UseCases {
   buildBeatGrids: BuildBeatGrids;
   getBeatGrid: GetBeatGrid;
   prioritizeBeatGrids: PrioritizeBeatGrids;
+  getWaveform: GetWaveform;
 }
 
 /** Composition supplies this (an infrastructure watcher); the interface
@@ -102,6 +104,7 @@ function isPublicRoute(method: string, p: string): boolean {
       p === "/api/audio" ||
       p === "/api/cover" ||
       p === "/api/beat-grid" ||
+      p === "/api/waveform" ||
       p === "/api/events" ||
       p === "/api/session")
   ) {
@@ -242,6 +245,24 @@ export function buildServer(
       sendJson(res, 200, { ok: true });
     },
 
+    // Overview waveform for the mobile DJ and the crowd screen (the
+    // desktop decks draw theirs from the decoded buffer). ~120 levels,
+    // 0–100, so a phone downloads a few hundred bytes.
+    "GET /api/waveform": async (_req, res, url, ctx) => {
+      const path = url.searchParams.get("path") ?? "";
+      const w = await ctx.uc.getWaveform.execute(path);
+      if (!w) {
+        sendJson(res, 404, { error: "no waveform" });
+        return;
+      }
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      sendJson(res, 200, {
+        path,
+        durationSec: Math.round(w.durationSec * 100) / 100,
+        peaks: w.peaks.map((p) => Math.round(p * 100)),
+      });
+    },
+
     "GET /api/cover": async (_req, res, url, ctx) => {
       const cover = await ctx.uc.getCover.execute(
         url.searchParams.get("path") ?? "",
@@ -295,7 +316,9 @@ export function buildServer(
         sendJson(res, 404, { error: "session not found" });
         return;
       }
-      sendJson(res, 200, snap);
+      // serverTime lets the crowd screen correct for its clock when it
+      // extrapolates the playhead from nowPlayingAt.
+      sendJson(res, 200, { ...snap, serverTime: Date.now() });
     },
 
     // DJ poll: hand back crowd adds since last call, record what the
@@ -305,6 +328,7 @@ export function buildServer(
         id?: unknown;
         played?: unknown;
         nowPlaying?: unknown;
+        upNext?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
       const played = Array.isArray(body?.played)
@@ -316,21 +340,10 @@ export function buildServer(
         sendJson(res, 404, { error: "session not found" });
         return;
       }
-      const np = body?.nowPlaying;
-      if (np === null) {
-        sessions.setNowPlaying(id, null);
-      } else if (np !== undefined && typeof np === "object") {
-        const o = np as Record<string, unknown>;
-        if (typeof o.name === "string") {
-          sessions.setNowPlaying(id, {
-            name: o.name,
-            artist: typeof o.artist === "string" ? o.artist : null,
-            bpm: typeof o.bpm === "number" ? o.bpm : null,
-            path: typeof o.path === "string" ? o.path : null,
-            by: typeof o.by === "string" ? o.by : null,
-          });
-        }
-      }
+      const np = parseNowPlaying(body?.nowPlaying);
+      if (np !== undefined) sessions.setNowPlaying(id, np);
+      const upNext = parseUpNext(body?.upNext);
+      if (upNext !== undefined) sessions.setUpNext(id, upNext);
       sendJson(res, 200, { pending: sessions.drain(id, played) });
     },
 

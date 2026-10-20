@@ -78,13 +78,13 @@ test("crowd: Up Next vote pill toggles", async ({ page }) => {
   await joinCrowd(page, sid, "Robin");
   await page.waitForSelector(".vote-pill");
   const pill = await page.$(".vote-pill");
-  const countBefore = await pill.evaluate((el) => Number(el.querySelector("span:last-child").textContent));
+  assert.equal(await pill.evaluate((el) => el.querySelector("span:last-child").textContent), "VOTE");
   await pill.click();
   await page.waitForTimeout(300);
   const voted = await page.evaluate(() => document.querySelector(".vote-pill").classList.contains("voted"));
-  const countAfter = await page.evaluate(() => Number(document.querySelector(".vote-pill span:last-child").textContent));
+  const label = await page.evaluate(() => document.querySelector(".vote-pill span:last-child").textContent);
   assert.ok(voted, "vote pill becomes active");
-  assert.equal(countAfter, countBefore + 1, "vote count increments");
+  assert.equal(label, "VOTED", "pill says it's voted (no made-up vote count)");
 });
 
 test("crowd: requested track is credited to the requester in Up Next", async ({ page }) => {
