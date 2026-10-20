@@ -54,7 +54,7 @@
       </ul>
 
       <h2>If you join a party as a guest</h2>
-      <p>You don't need an account. The first name you give, your requests and your votes are shared with the DJ and the other guests of that party. The server holds a party in memory only and never writes it to a database; it is gone when the server restarts. Your name and votes are also remembered in your own browser, so you don't have to type them again.</p>
+      <p>You don't need an account. The first name you give, your requests and your votes are shared with the DJ and the other guests of that party. The server keeps the party in its database so it survives a restart: your requests with your first name, and your votes under a random guest number your browser makes up (not your name). Your name and votes are also remembered in your own browser, so you don't have to type them again.</p>
 
       <h2>Why</h2>
       <ul>
@@ -78,7 +78,7 @@
         <li><strong>Your account and library</strong> stay until you ask us to delete them. There is no delete button for those, so mail us.</li>
         <li><strong>Crates and record stores</strong> you delete in the app are deleted at once.</li>
         <li><strong>Backups:</strong> the database is backed up every night and each backup is kept for 30 days; music files you no longer have are kept in the backup copy for 30 days. So deleted data is gone from the backups within about 30 days.</li>
-        <li><strong>Parties</strong> live only in the server's memory (see above).</li>
+        <li><strong>Parties</strong> are deleted 48 hours after the last activity. A party can still be in a nightly backup for up to 30 days after that.</li>
         <li><strong>Your browser:</strong> your settings, guest name, votes and cookie choice stay until you clear your browser's storage.</li>
       </ul>
 

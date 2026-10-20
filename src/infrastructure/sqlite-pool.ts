@@ -116,6 +116,49 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_remote_libraries_user
     ON remote_libraries (user_id, is_active);
+
+  CREATE TABLE IF NOT EXISTS party_sessions (
+    id             TEXT    PRIMARY KEY NOT NULL,
+    owner_user_id  TEXT    NOT NULL,
+    config         TEXT    NOT NULL,
+    now_playing    TEXT,
+    now_playing_at INTEGER,
+    up_next        TEXT,
+    rev            INTEGER NOT NULL DEFAULT 0,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_party_sessions_updated
+    ON party_sessions (updated_at);
+
+  CREATE TABLE IF NOT EXISTS party_session_requests (
+    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    bpm        REAL,
+    by_name    TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_party_session_requests_session
+    ON party_session_requests (session_id, seq);
+
+  CREATE TABLE IF NOT EXISTS party_session_played (
+    session_id TEXT    NOT NULL,
+    path_key   TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, path_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS party_session_votes (
+    session_id TEXT    NOT NULL,
+    path_key   TEXT    NOT NULL,
+    guest      TEXT    NOT NULL,
+    path       TEXT    NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, path_key, guest)
+  );
 `;
 
 const ready = new WeakSet<Db>();

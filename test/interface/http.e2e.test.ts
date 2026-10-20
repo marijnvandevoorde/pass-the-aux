@@ -8,9 +8,13 @@ import { createApp } from "../../src/main.ts";
 import type { Config } from "../../src/infrastructure/config.ts";
 import { writeTinyWav } from "../fixtures/wav.ts";
 
-async function startServer(): Promise<{ base: string; close: () => Promise<void> }> {
-  const musicDir = await fsp.mkdtemp(path.join(os.tmpdir(), "djm-e2e-"));
-  writeTinyWav(path.join(musicDir, "demo.wav"), 1000);
+/** `reuseDir` starts a second server on the same library + database
+ *  (a restart). */
+async function startServer(
+  reuseDir?: string,
+): Promise<{ base: string; musicDir: string; close: () => Promise<void> }> {
+  const musicDir = reuseDir ?? (await fsp.mkdtemp(path.join(os.tmpdir(), "djm-e2e-")));
+  if (!reuseDir) writeTinyWav(path.join(musicDir, "demo.wav"), 1000);
 
   const config: Config = {
     host: "127.0.0.1",
@@ -42,6 +46,7 @@ async function startServer(): Promise<{ base: string; close: () => Promise<void>
   const { port } = server.address() as AddressInfo;
   return {
     base: `http://127.0.0.1:${port}`,
+    musicDir,
     close: () => new Promise<void>((res) => server.close(() => res())),
   };
 }
@@ -416,6 +421,78 @@ test("session votes: guests vote per track, the DJ's sync and the crowd's snapsh
   }
 });
 
+test("a server restart keeps the party: votes, requests, Up Next", async () => {
+  const json = { "Content-Type": "application/json" };
+  const first = await startServer();
+  let id: string;
+  try {
+    const created = await fetch(`${first.base}/api/session`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id: "Friday", config: { automix: true } }),
+    });
+    ({ id } = (await created.json()) as { id: string });
+    for (const guest of ["g1", "g2"]) {
+      await fetch(`${first.base}/api/session/vote`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ id, path: "demo.wav", guest, on: true }),
+      });
+    }
+    await fetch(`${first.base}/api/session/queue`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id, path: "demo.wav", name: "Demo", by: "Ann" }),
+    });
+    await fetch(`${first.base}/api/session/sync`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({
+        id,
+        played: [],
+        upNext: [{ name: "Demo", path: "demo.wav", bpm: null, by: "Ann" }],
+        nowPlaying: { name: "Intro", path: "intro.wav", positionSec: 5, durationSec: 60, playing: true },
+      }),
+    });
+  } finally {
+    await first.close();
+  }
+
+  const second = await startServer(first.musicDir); // the restart
+  try {
+    // The guest's QR link still works and still shows their vote.
+    const snap = (await (await fetch(`${second.base}/api/session?id=${id}&g=g1`)).json()) as {
+      votes: Record<string, number>;
+      myVotes: string[];
+      upNext: Array<{ path: string }>;
+      nowPlaying: { path: string };
+    };
+    assert.deepEqual(snap.votes, { "demo.wav": 2 });
+    assert.deepEqual(snap.myVotes, ["demo.wav"]);
+    assert.deepEqual(snap.upNext.map((t) => t.path), ["demo.wav"]);
+    assert.equal(snap.nowPlaying.path, "intro.wav");
+    // The DJ's next poll still gets the votes; the request was delivered
+    // before the restart, so it isn't delivered again.
+    const sync = (await (
+      await fetch(`${second.base}/api/session/sync`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ id, played: [] }),
+      })
+    ).json()) as { pending: unknown[]; votes: Record<string, number> };
+    assert.deepEqual(sync.votes, { "demo.wav": 2 });
+    assert.deepEqual(sync.pending, []);
+    const replay = await fetch(`${second.base}/api/session/queue`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id, path: "demo.wav" }),
+    });
+    assert.equal(replay.status, 409, "no replays after a restart");
+  } finally {
+    await second.close();
+  }
+});
+
 test("POST /api/session/clear-played: clears dedup so the same track can be re-queued", async () => {
   const s = await startServer();
   try {
@@ -458,6 +535,78 @@ test("POST /api/session/clear-played: clears dedup so the same track can be re-q
     assert.equal(a2.status, 200);
   } finally {
     await s.close();
+  }
+});
+
+test("a server restart keeps the party: votes, requests, Up Next", async () => {
+  const json = { "Content-Type": "application/json" };
+  const first = await startServer();
+  let id: string;
+  try {
+    const created = await fetch(`${first.base}/api/session`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id: "Friday", config: { automix: true } }),
+    });
+    ({ id } = (await created.json()) as { id: string });
+    for (const guest of ["g1", "g2"]) {
+      await fetch(`${first.base}/api/session/vote`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ id, path: "demo.wav", guest, on: true }),
+      });
+    }
+    await fetch(`${first.base}/api/session/queue`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id, path: "demo.wav", name: "Demo", by: "Ann" }),
+    });
+    await fetch(`${first.base}/api/session/sync`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({
+        id,
+        played: [],
+        upNext: [{ name: "Demo", path: "demo.wav", bpm: null, by: "Ann" }],
+        nowPlaying: { name: "Intro", path: "intro.wav", positionSec: 5, durationSec: 60, playing: true },
+      }),
+    });
+  } finally {
+    await first.close();
+  }
+
+  const second = await startServer(first.musicDir); // the restart
+  try {
+    // The guest's QR link still works and still shows their vote.
+    const snap = (await (await fetch(`${second.base}/api/session?id=${id}&g=g1`)).json()) as {
+      votes: Record<string, number>;
+      myVotes: string[];
+      upNext: Array<{ path: string }>;
+      nowPlaying: { path: string };
+    };
+    assert.deepEqual(snap.votes, { "demo.wav": 2 });
+    assert.deepEqual(snap.myVotes, ["demo.wav"]);
+    assert.deepEqual(snap.upNext.map((t) => t.path), ["demo.wav"]);
+    assert.equal(snap.nowPlaying.path, "intro.wav");
+    // The DJ's next poll still gets the votes; the request was delivered
+    // before the restart, so it isn't delivered again.
+    const sync = (await (
+      await fetch(`${second.base}/api/session/sync`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ id, played: [] }),
+      })
+    ).json()) as { pending: unknown[]; votes: Record<string, number> };
+    assert.deepEqual(sync.votes, { "demo.wav": 2 });
+    assert.deepEqual(sync.pending, []);
+    const replay = await fetch(`${second.base}/api/session/queue`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ id, path: "demo.wav" }),
+    });
+    assert.equal(replay.status, 409, "no replays after a restart");
+  } finally {
+    await second.close();
   }
 });
 

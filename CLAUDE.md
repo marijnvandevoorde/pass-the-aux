@@ -116,6 +116,22 @@ while the start carries on. It goes back to zero after
 spotify-api keeps no state a restart would lose: a cold start just logs
 in to Spotify again.
 
+## Party sessions
+
+The party (crowd requests, played tracks, Up Next, now playing, votes)
+lives in `SessionStore` (`infrastructure/session-store.ts`) in memory,
+written through to `PartySessionRepository` (`party_session*` tables,
+sqlite and mysql), so a restart or deploy keeps it and guests' QR links
+keep working: an unknown id is loaded on first use. The playhead is
+only stored with a new track or play/pause (the DJ re-sends it every
+sync); an unchanged Up Next or played list isn't written. Every stored
+change bumps `rev`; a cached session is re-checked every 5 s (and
+before handing out or accepting a request), so the old and new pod of a
+rolling deploy stay in step. Votes and played tracks are rows keyed by
+a SHA-1 of the path, so two pods never undo each other. Sessions idle
+for 48 h are deleted (`sweep`, hourly). A failed write is logged and
+the party carries on from memory.
+
 ## Deploying
 
 `npm run deploy` (`scripts/deploy.sh`) runs the shared `sv-deploy` from
