@@ -4,7 +4,7 @@ import type { BeatGridResponse, LibraryResponse, RemoteTrackInfo } from "./types
 import { applyKeyVars, keyHue, keyRelation, bpmDeltaLabel, TONE_VARS } from "./key-utils.js";
 import { createWaveform } from "./waveform.js";
 import { qrMatrix } from "./qr.js";
-import { byId, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip } from "./dom-utils.js";
+import { byId, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip, metaParts } from "./dom-utils.js";
 
 type LibTrack = LibraryResponse["tracks"][number];
 
@@ -247,7 +247,11 @@ npPlayBtnEl.addEventListener("click", togglePlay);
 
 // ── Beat-matched fade-to-next ──
 async function doFadeToNext(): Promise<void> {
-  if (fading || skipping || queue.length === 0) return;
+  if (fading || skipping) return;
+  if (queue.length === 0) {
+    showToast("Nothing queued to fade into");
+    return;
+  }
   skipping = true;
 
   // Ring animation (confirmation)
@@ -335,8 +339,15 @@ async function doFadeToNext(): Promise<void> {
   commitNowPlaying(next);
 }
 
-skipWrapEl.addEventListener("click", () => void doFadeToNext());
-npSkipWrapEl.addEventListener("click", () => void doFadeToNext());
+for (const el of [skipWrapEl, npSkipWrapEl]) {
+  el.addEventListener("click", () => void doFadeToNext());
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      void doFadeToNext();
+    }
+  });
+}
 
 /** Mark the outgoing track played, promote `next` to now-playing, and
  *  refresh all UI (cover, beat grid, waveforms via renderNow, queue).
@@ -456,6 +467,7 @@ function renderQueue(): void {
   queueCountEl.textContent = String(queue.length);
   queueListEl.innerHTML = "";
   queueEmptyEl.classList.toggle("visible", queue.length === 0);
+  must<HTMLSpanElement>("ondeckFlag").style.visibility = queue.length === 0 ? "hidden" : "";
   if (queue.length === 0) return;
 
   if (nowPlaying && queue[0]) {
@@ -545,9 +557,11 @@ function renderLibrary(filter = ""): void {
       <div class="lib-info">
         <div class="lib-name">${esc(tr.title ?? tr.name)}</div>
         <div class="lib-meta">
-          ${camelot ? `<span class="q-key">${esc(camelot)}</span><span class="q-dot">·</span>` : ""}
-          ${tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : ""}
-          ${tr.artist ? `<span class="q-dot">·</span><span style="color:var(--faint)">${esc(tr.artist)}</span>` : ""}
+          ${metaParts([
+            camelot ? `<span class="q-key">${esc(camelot)}</span>` : "",
+            tr.bpm ? `<span class="q-bpm">${Math.round(tr.bpm)} BPM</span>` : "",
+            tr.artist ? `<span style="color:var(--faint)">${esc(tr.artist)}</span>` : "",
+          ])}
         </div>
       </div>
       <button class="add-btn${inQ ? " added" : ""}" data-path="${esc(tr.path)}">${inQ ? "✓ ADDED" : "+ QUEUE"}</button>`;
@@ -594,7 +608,13 @@ tabLibraryEl.addEventListener("click", () => switchTab("library"));
 fabLibraryEl.addEventListener("click", () => switchTab("library"));
 
 // ── Clear / reset ──
-clearBtnEl.addEventListener("click", () => { queue = []; renderQueue(); });
+clearBtnEl.addEventListener("click", () => {
+  if (queue.length === 0) return;
+  // Crowd requests live here too: one stray tap shouldn't wipe them.
+  if (queue.length > 1 && !confirm(`Clear all ${queue.length} tracks from the queue?`)) return;
+  queue = [];
+  renderQueue();
+});
 resetBtnEl.addEventListener("click", async () => {
   await api.clearSessionPlayed(sessionId);
   showToast("Played history reset");
@@ -865,7 +885,9 @@ async function main(): Promise<void> {
 
   liveDotEl.style.display = "";
   shareBtnEl.style.display = "";
-  guestCountEl.innerHTML = "<b>0</b> in the room";
+  // No presence tracking server-side: say what we know (the session is
+  // live), not a guest count that always reads 0.
+  guestCountEl.textContent = "Live — guests can request";
 
   setInterval(() => void sync(), 4000);
 }

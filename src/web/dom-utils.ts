@@ -101,3 +101,9 @@ export function requesterChip(
   const label = showName ? `<span class="req-name">${esc(n)}</span>` : "";
   return `<span class="req-chip">${pre}${av}${label}</span>`;
 }
+
+/** Join already-escaped meta fragments with dots, skipping empty ones
+ *  (no "9A · · Artist" when the BPM is missing). */
+export function metaParts(parts: readonly string[]): string {
+  return parts.filter((p) => p !== "").join(`<span class="q-dot">·</span>`);
+}

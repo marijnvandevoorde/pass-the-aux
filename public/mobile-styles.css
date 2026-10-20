@@ -359,7 +359,7 @@ body {
   letter-spacing: 0.16em; color: var(--accent); flex: 1;
 }
 .clear-btn {
-  height: 28px; width: 28px; border-radius: 9px;
+  height: 40px; width: 40px; border-radius: 11px;
   border: 1px solid var(--line); background: none;
   color: var(--faint); cursor: pointer; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -483,7 +483,7 @@ body {
 .np-req .who { width: 22px; height: 22px; font-size: 9.5px; }
 .drag-handle { color: var(--faint); font-size: 15px; opacity: 0.45; cursor: grab; padding: 0 1px; }
 .remove-btn {
-  width: 26px; height: 26px; border-radius: 50%; border: none; background: none;
+  width: 40px; height: 40px; border-radius: 50%; border: none; background: none;
   color: var(--faint); cursor: pointer; font-size: 17px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   -webkit-tap-highlight-color: transparent; transition: color .15s, background .15s;

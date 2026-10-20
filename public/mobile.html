@@ -70,7 +70,7 @@
           </svg>
           <span class="play-label" id="playLabel">PAUSED</span>
         </button>
-        <div class="skip-wrap" id="skipWrap" title="Fade to next">
+        <div class="skip-wrap" id="skipWrap" title="Fade to next" role="button" tabindex="0" aria-label="Fade to the next track">
           <svg class="skip-ring-svg" viewBox="0 0 50 50">
             <circle class="skip-ring-track" cx="25" cy="25" r="22"/>
             <circle class="skip-ring-fill" id="skipRing" cx="25" cy="25" r="22"/>
@@ -96,7 +96,7 @@
       <div class="tab-panels">
         <div class="tab-panel active" id="panelQueue">
           <div class="queue-toolbar">
-            <span class="ondeck-flag">▸ MIXING INTO DECK</span>
+            <span class="ondeck-flag" id="ondeckFlag">▸ PLAYS TOP TO BOTTOM</span>
             <button class="clear-btn" id="resetBtn" aria-label="Reset played history" title="Reset played history">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 1 1.7 4"/><path d="M2 11.2V7.8h3.4"/></svg>
             </button>
@@ -159,7 +159,7 @@
           </svg>
           <span class="play-label" id="npPlayLabel">PAUSED</span>
         </button>
-        <div class="skip-wrap" id="npSkipWrap" title="Fade to next">
+        <div class="skip-wrap" id="npSkipWrap" title="Fade to next" role="button" tabindex="0" aria-label="Fade to the next track">
           <svg class="skip-ring-svg" viewBox="0 0 50 50">
             <circle class="skip-ring-track" cx="25" cy="25" r="22"/>
             <circle class="skip-ring-fill" id="npSkipRing" cx="25" cy="25" r="22"/>

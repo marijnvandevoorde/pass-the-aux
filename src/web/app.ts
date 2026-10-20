@@ -1359,9 +1359,9 @@ function wireGlobal(): void {
     if (automix.on) {
       applyAutoCue("A");
       applyAutoCue("B");
-      const cur = desiredSessionId();
-      const ans = window.prompt("Session id for guests to join:", cur);
-      sidEl.value = cleanId(ans ?? "") || cur;
+      // No blocking prompt mid-set: the session id is editable in the
+      // header (SESSION field) and Share shows the QR.
+      sidEl.value = desiredSessionId();
       void ensureSession(true);
     } else {
       qrPanel.hidden = true;
@@ -1440,6 +1440,7 @@ function wireGlobal(): void {
       },
       onDone: (info) => {
         setDeckName(info.from, "— no track —");
+        setStatus(`Deck ${info.to} is live`);
       },
       onSettled: () => {
         manualFade = null;
@@ -2455,22 +2456,32 @@ function restoreSession(): void {
     const restoreDeck = async (
       snap: SessionDeck | null,
       id: DeckId,
-    ): Promise<void> => {
-      if (!snap || !snap.path || !libPaths.has(snap.path)) return;
+    ): Promise<boolean> => {
+      if (!snap || !snap.path || !libPaths.has(snap.path)) return false;
       const lib = byPath(snap.path);
-      if (!lib) return;
-      await loadToDeck(
+      if (!lib) return false;
+      const ok = await loadToDeck(
         { name: lib.display, path: lib.path, bpm: lib.bpm },
         id,
       );
+      if (!ok) return false;
       if (snap.offsetSec > 0) decks[id].seek(snap.offsetSec);
       if (snap.playing) decks[id].play();
+      return true;
     };
     void Promise.all([
       restoreDeck(s.decks.A, "A"),
       restoreDeck(s.decks.B, "B"),
-    ]).finally(resume);
-    setStatus("session restored — decks & queue recovered");
+    ])
+      .then((r) => {
+        const n = r.filter(Boolean).length;
+        if (n > 0 || s.queue.length > 0) {
+          setStatus(
+            `session restored — ${n} deck${n === 1 ? "" : "s"}, ${s.queue.length} queued`,
+          );
+        }
+      })
+      .finally(resume);
     return;
   }
 
@@ -2590,8 +2601,14 @@ function render(): void {
     const root = deckRoot(id);
     drawWave(deck, must<HTMLCanvasElement>(".waveform", root), id);
 
-    must<HTMLElement>(".time", root).textContent =
-      `${fmtTime(deck.currentTime)} / ${fmtTime(deck.duration)}`;
+    // Remaining time is what a DJ watches; it turns hot in the last 30 s
+    // of a playing track.
+    const timeEl = must<HTMLElement>(".time", root);
+    const left = deck.duration > 0 ? (deck.duration - deck.currentTime) / (deck.rate || 1) : 0;
+    timeEl.textContent = deck.buffer
+      ? `${fmtTime(deck.currentTime)} · -${fmtTime(left)}`
+      : "0:00 · -0:00";
+    timeEl.classList.toggle("ending", deck.isPlaying && left < 30);
 
     // Hero BPM readout: the big number is the effective (tempo-adjusted)
     // BPM; the label notes the original when tempo shifts it.
@@ -2651,6 +2668,17 @@ function render(): void {
     `${Math.round(mixer.masterLevel() * 100)}%`;
 
   automix.tick();
+
+  // Automix countdown next to the queue: when the next mix starts.
+  {
+    const cd = must<HTMLElement>("#am-countdown");
+    const s = automix.secondsToMix;
+    cd.textContent = automix.fading
+      ? "mixing…"
+      : s !== null
+        ? `next mix in ${fmtTime(s)}`
+        : "";
+  }
 
   // ── Mobile bar update ──────────────────────────────────────────
   {
