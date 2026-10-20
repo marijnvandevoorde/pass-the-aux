@@ -10,7 +10,7 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 ## Open
 
-- Mobile DJ: queue and now-playing aren't persisted, a refresh loses them.
-- Mobile + crowd: the waveforms are decorative (generated from the track name), not the audio.
 - Desktop: the crossfader position isn't restored after a refresh (centre).
-- test/visual (mobile.mjs) is stale: it waits for a `#start-btn` overlay the mobile UI no longer shows.
+- Crowd votes stay on the guest's phone: the VOTE pill toggles but nothing reaches the DJ. Make votes real (count per track on the server, shown in the DJ's queue) or drop the pill.
+- Waveforms (`/api/waveform`) are cached in server memory, so each restart recomputes them (one ffmpeg decode per track, plus a bucket download on prod). Store them next to the cover if that ever shows up in the load.
+- Visual test: `npm run visual-test` (mobile, crowd, party screen, desktop queue) before and after UI work; local only, the baselines are made on macOS.

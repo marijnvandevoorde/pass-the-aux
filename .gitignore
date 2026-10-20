@@ -8,6 +8,8 @@ music/*
 test/visual/test.sqlite
 test/visual/test.sqlite-shm
 test/visual/test.sqlite-wal
+test/visual/current-*.png
+test/visual/diff-*.png
 
 # E2E throwaway db
 test/e2e/.tmp/
