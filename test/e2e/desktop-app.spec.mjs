@@ -31,6 +31,15 @@ test("desktop: boots past the start overlay and lists the library", async ({ pag
   assert.equal(rows.length, 4, "all four seeded tracks are listed");
 });
 
+test("desktop: boot loads the alarm bed for the Siren FX / XY alarm", async ({ page }) => {
+  await page.setViewportSize(DESKTOP);
+  await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
+  await page.waitForSelector("#start-btn");
+  const alarm = page.waitForResponse((r) => r.url().endsWith("/samples/emergency-siren.mp3"), { timeout: 8000 });
+  await page.click("#start-btn", { force: true });
+  assert.equal((await alarm).status(), 200, "emergency-siren.mp3 fetched after boot");
+});
+
 test("desktop: library search filters the list", async ({ page }) => {
   await page.setViewportSize(DESKTOP);
   await boot(page);

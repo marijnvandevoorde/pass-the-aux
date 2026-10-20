@@ -22,6 +22,10 @@ export const SAMPLES: readonly SamplePad[] = [
   },
 ] as const;
 
+/** Looping bed behind the "Siren" FX macro and the XY `alarm` mode.
+ *  Not a pad: it's loaded once and handed to each deck. */
+export const ALARM_FILE = "emergency-siren.mp3";
+
 const cache = new Map<string, AudioBuffer>();
 
 // one live source per pad (monophonic — re-tap restarts, no
@@ -38,19 +42,37 @@ function safeStop(src: AudioBufferSourceNode): void {
   }
 }
 
+/** Fetch and decode one file from /samples, or undefined when it's
+ *  missing or undecodable. */
+async function fetchBuffer(
+  ctx: BaseAudioContext,
+  file: string,
+): Promise<AudioBuffer | undefined> {
+  try {
+    const res = await fetch(`/samples/${file}`);
+    if (!res.ok) return undefined;
+    return await ctx.decodeAudioData(await res.arrayBuffer());
+  } catch {
+    return undefined;
+  }
+}
+
 /** Preload every soundboard file. Failures are silent (pad just no-ops). */
-export async function loadSamples(ctx: AudioContext): Promise<void> {
+export async function loadSamples(ctx: BaseAudioContext): Promise<void> {
   await Promise.all(
     SAMPLES.map(async (s) => {
-      try {
-        const res = await fetch(`/samples/${s.file}`);
-        if (!res.ok) return;
-        cache.set(s.name, await ctx.decodeAudioData(await res.arrayBuffer()));
-      } catch {
-        // unreadable / undecodable — leave uncached, pad stays silent
-      }
+      const buf = await fetchBuffer(ctx, s.file);
+      if (buf) cache.set(s.name, buf);
     }),
   );
+}
+
+/** The decoded alarm bed (ALARM_FILE), or undefined if it can't load
+ *  (the Siren FX / XY alarm then stay silent). */
+export function loadAlarmBuffer(
+  ctx: BaseAudioContext,
+): Promise<AudioBuffer | undefined> {
+  return fetchBuffer(ctx, ALARM_FILE);
 }
 
 /** Fire a one-shot. Monophonic per pad: re-tapping the same
@@ -87,11 +109,6 @@ export function stopAllSamples(): void {
   for (const src of live) safeStop(src);
   live.clear();
   activeByPad.clear();
-}
-
-/** A decoded sample buffer by pad name (e.g. for the alarm FX bed). */
-export function getSampleBuffer(name: string): AudioBuffer | undefined {
-  return cache.get(name);
 }
 
 /** Map an AZERTY letter to a sample name, or null. */

@@ -25,7 +25,7 @@ import {
   stopAllSamples,
   loadSamples,
   sampleForKey,
-  getSampleBuffer,
+  loadAlarmBuffer,
 } from "./samples.js";
 import { pickOutputDevice, deviceLabel } from "./audio-devices.js";
 import {
@@ -318,8 +318,8 @@ must<HTMLButtonElement>("#start-btn").addEventListener("click", async () => {
   await loadLibrary();
   restoreSession();
   void loadCrates();
-  void loadSamples(ctx).then(() => {
-    const ab = getSampleBuffer("Air-Raid Siren");
+  void loadSamples(ctx);
+  void loadAlarmBuffer(ctx).then((ab) => {
     if (ab) {
       decks.A.setAlarmBuffer(ab);
       decks.B.setAlarmBuffer(ab);
