@@ -292,7 +292,7 @@ export function buildServer(
         }>;
       };
       const c = body?.config ?? {};
-      const id = sessions.create(
+      const id = await sessions.create(
         {
           automix: c.automix === true,
           autoFill: c.autoFill === true,
@@ -311,7 +311,7 @@ export function buildServer(
     },
 
     "GET /api/session": async (_req, res, url, ctx) => {
-      const snap = sessions.get(url.searchParams.get("id") ?? "");
+      const snap = await sessions.get(url.searchParams.get("id") ?? "");
       if (!snap) {
         sendJson(res, 404, { error: "session not found" });
         return;
@@ -323,7 +323,7 @@ export function buildServer(
       sendJson(res, 200, {
         ...snap,
         serverTime: Date.now(),
-        ...(guest !== "" ? { myVotes: sessions.votesOf(snap.id, guest) } : {}),
+        ...(guest !== "" ? { myVotes: await sessions.votesOf(snap.id, guest) } : {}),
       });
     },
 
@@ -342,17 +342,17 @@ export function buildServer(
             (p): p is string => typeof p === "string",
           )
         : [];
-      if (!sessions.has(id)) {
+      if (!(await sessions.has(id))) {
         sendJson(res, 404, { error: "session not found" });
         return;
       }
       const np = parseNowPlaying(body?.nowPlaying);
-      if (np !== undefined) sessions.setNowPlaying(id, np);
+      if (np !== undefined) await sessions.setNowPlaying(id, np);
       const upNext = parseUpNext(body?.upNext);
-      if (upNext !== undefined) sessions.setUpNext(id, upNext);
+      if (upNext !== undefined) await sessions.setUpNext(id, upNext);
       sendJson(res, 200, {
-        pending: sessions.drain(id, played),
-        votes: sessions.voteCounts(id),
+        pending: await sessions.drain(id, played),
+        votes: await sessions.voteCounts(id),
       });
     },
 
@@ -367,7 +367,7 @@ export function buildServer(
       };
       const id = typeof body?.id === "string" ? body.id : "";
       const path = typeof body?.path === "string" ? body.path.trim() : "";
-      const r = sessions.vote(id, path, sanitizeGuestId(body?.guest), body?.on !== false);
+      const r = await sessions.vote(id, path, sanitizeGuestId(body?.guest), body?.on !== false);
       if (r === "not-found") sendJson(res, 404, { error: "session not found" });
       else if (r === "invalid") sendJson(res, 400, { error: "missing track or guest" });
       else sendJson(res, 200, r);
@@ -381,7 +381,7 @@ export function buildServer(
         id?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
-      if (!sessions.has(id)) {
+      if (!(await sessions.has(id))) {
         sendJson(res, 404, { error: "session not found" });
         return;
       }
@@ -389,11 +389,11 @@ export function buildServer(
       // SESSION_SECRET, ctx.uid === ""), owner is "" too — falls
       // through. With auth on, ctx.uid is the logged-in DJ and must
       // match the session's owner.
-      if (sessions.ownerOf(id) !== ctx.uid) {
+      if ((await sessions.ownerOf(id)) !== ctx.uid) {
         sendJson(res, 403, { error: "not the session owner" });
         return;
       }
-      sessions.clearPlayed(id);
+      await sessions.clearPlayed(id);
       sendJson(res, 200, { ok: true });
     },
 
@@ -405,16 +405,16 @@ export function buildServer(
         showUpNext?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
-      if (!sessions.has(id)) {
+      if (!(await sessions.has(id))) {
         sendJson(res, 404, { error: "session not found" });
         return;
       }
-      if (sessions.ownerOf(id) !== ctx.uid) {
+      if ((await sessions.ownerOf(id)) !== ctx.uid) {
         sendJson(res, 403, { error: "not the session owner" });
         return;
       }
       if (typeof body?.showUpNext === "boolean") {
-        sessions.patchConfig(id, { showUpNext: body.showUpNext });
+        await sessions.patchConfig(id, { showUpNext: body.showUpNext });
       }
       sendJson(res, 200, { ok: true });
     },
@@ -432,7 +432,7 @@ export function buildServer(
         by?: unknown;
       };
       const id = typeof body?.id === "string" ? body.id : "";
-      if (!sessions.has(id)) {
+      if (!(await sessions.has(id))) {
         sendJson(res, 404, { error: "session not found" });
         return;
       }
@@ -444,7 +444,7 @@ export function buildServer(
           : null;
       // crowd adds land in the session OWNER's library (the
       // session id is in the body, so re-scope here).
-      const ownerUc = useCasesFor(sessions.ownerOf(id));
+      const ownerUc = useCasesFor(await sessions.ownerOf(id));
       let item: { name: string; path: string; bpm: number | null; by: string | null };
       if (
         typeof body?.remoteId === "string" &&
@@ -476,7 +476,7 @@ export function buildServer(
           by,
         };
       }
-      const status = sessions.enqueue(id, item);
+      const status = await sessions.enqueue(id, item);
       if (status === "ok") {
         ownerUc.prioritizeBeatGrids.execute([item.path]);
       }
@@ -820,7 +820,7 @@ export function buildServer(
       if (!uid) {
         const sid =
           url.searchParams.get("s") ?? url.searchParams.get("id") ?? "";
-        if (sid) uid = sessions.ownerOf(sid);
+        if (sid) uid = await sessions.ownerOf(sid);
       }
       const ctx: Ctx = { uc: useCasesFor(uid), uid };
 

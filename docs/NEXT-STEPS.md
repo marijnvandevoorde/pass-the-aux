@@ -9,5 +9,5 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 ## Open
 
-- Crowd votes live in the in-memory session like requests and Up Next: a server restart (deploy) clears them. Persist sessions if that matters at a party.
+- Party sessions stored (#60): after merge + deploy, vote as a guest on prod, deploy again, and check the DJ still sees `▲ n` and the guest VOTED.
 - Visual test: `npm run visual-test` (mobile, crowd, party screen, desktop queue) before and after UI work; local only, the baselines are made on macOS.

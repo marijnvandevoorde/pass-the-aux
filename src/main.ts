@@ -45,6 +45,9 @@ import { FfmpegWaveformSource } from "./infrastructure/ffmpeg-waveform-source.ts
 import type { WaveformRepository } from "./domain/ports/waveform-repository.ts";
 import { SqliteWaveformRepository } from "./infrastructure/sqlite-waveform-repository.ts";
 import { MysqlWaveformRepository } from "./infrastructure/mysql-waveform-repository.ts";
+import type { PartySessionRepository } from "./domain/ports/party-session-repository.ts";
+import { SqlitePartySessionRepository } from "./infrastructure/sqlite-party-session-repository.ts";
+import { MysqlPartySessionRepository } from "./infrastructure/mysql-party-session-repository.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
@@ -91,6 +94,7 @@ export function createApp(
   let beatGrids: BeatGridRepository;
   let waveforms: WaveformRepository;
   let remoteLibs: RemoteLibrariesRepository;
+  let partySessions: PartySessionRepository;
   if (config.storageDriver === "mysql") {
     const pool = createDbPool(config.db);
     analyses = new MysqlAnalysisRepository(pool);
@@ -99,6 +103,7 @@ export function createApp(
     beatGrids = new MysqlBeatGridRepository(pool);
     waveforms = new MysqlWaveformRepository(pool);
     remoteLibs = new MysqlRemoteLibrariesRepository(pool);
+    partySessions = new MysqlPartySessionRepository(pool);
   } else {
     // sqlite (default) — single node:sqlite file, zero runtime deps.
     const db = openSqliteDb(config.sqlitePath);
@@ -108,6 +113,7 @@ export function createApp(
     beatGrids = new SqliteBeatGridRepository(db);
     waveforms = new SqliteWaveformRepository(db);
     remoteLibs = new SqliteRemoteLibrariesRepository(db);
+    partySessions = new SqlitePartySessionRepository(db);
   }
   const auth = new AuthService(users, config.sessionSecret);
   // Where the audio lives: a bucket (S3_BUCKET set) or MUSIC_DIR. A
@@ -180,7 +186,9 @@ export function createApp(
 
   const coverSource = new RemoteCoverArtSource(config.coverLookup);
   const bpmSource = new AcousticBrainzSource(config.coverLookup);
-  const sessions = new SessionStore();
+  // Party sessions: in memory, written through to storage so a restart
+  // or deploy keeps requests, Up Next and votes.
+  const sessions = new SessionStore({ repo: partySessions });
 
   // Each account works inside music/<uid>/. The fs adapters
   // are rebound per uid; the storage repos take the uid (real user_id
@@ -351,6 +359,14 @@ export function createApp(
     // guarantees a dropped-in file is eventually analysed even when no
     // fs event ever fires for it.
     setInterval(() => void sweepAll(), 5 * 60_000).unref?.();
+    // Party sessions nobody used for PARTY_SESSION_TTL_MS are deleted.
+    const sweepSessions = (): void => {
+      void sessions.sweep().then((n) => {
+        if (n > 0) console.log(`party sessions: deleted ${n} idle`);
+      });
+    };
+    setTimeout(sweepSessions, 10_000).unref?.();
+    setInterval(sweepSessions, 3600_000).unref?.();
   }
 
   return buildServer(useCasesFor, config, watcher, sessions, auth);

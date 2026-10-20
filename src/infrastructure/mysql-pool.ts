@@ -109,6 +109,48 @@ const SCHEMA = [
      PRIMARY KEY (id),
      KEY idx_user (user_id, is_active)
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  // Party sessions (crowd requests, Up Next, now playing, votes), so a
+  // restart or deploy doesn't end the party. Votes and played tracks are
+  // keyed by a SHA-1 of the track path (paths can be long).
+  `CREATE TABLE IF NOT EXISTS party_sessions (
+     id             VARCHAR(32)  NOT NULL,
+     owner_user_id  VARCHAR(64)  NOT NULL,
+     config         TEXT         NOT NULL,
+     now_playing    TEXT         NULL,
+     now_playing_at BIGINT       NULL,
+     up_next        MEDIUMTEXT   NULL,
+     rev            BIGINT       NOT NULL DEFAULT 0,
+     created_at     BIGINT       NOT NULL,
+     updated_at     BIGINT       NOT NULL,
+     PRIMARY KEY (id),
+     KEY idx_updated (updated_at)
+   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS party_session_requests (
+     seq        BIGINT       NOT NULL AUTO_INCREMENT,
+     session_id VARCHAR(32)  NOT NULL,
+     name       TEXT         NOT NULL,
+     path       TEXT         NOT NULL,
+     bpm        DOUBLE       NULL,
+     by_name    VARCHAR(64)  NULL,
+     created_at BIGINT       NOT NULL,
+     PRIMARY KEY (seq),
+     KEY idx_session (session_id, seq)
+   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS party_session_played (
+     session_id VARCHAR(32)  NOT NULL,
+     path_key   CHAR(40)     NOT NULL,
+     path       TEXT         NOT NULL,
+     created_at BIGINT       NOT NULL,
+     PRIMARY KEY (session_id, path_key)
+   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS party_session_votes (
+     session_id VARCHAR(32)  NOT NULL,
+     path_key   CHAR(40)     NOT NULL,
+     guest      VARCHAR(32)  NOT NULL,
+     path       TEXT         NOT NULL,
+     created_at BIGINT       NOT NULL,
+     PRIMARY KEY (session_id, path_key, guest)
+   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 // Memoised per pool so concurrent first requests bootstrap once.
