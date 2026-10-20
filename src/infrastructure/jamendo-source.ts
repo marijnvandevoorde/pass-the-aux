@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { describeFetchError } from "./fetch-error.ts";
 import { RemoteDisabledError, RemoteSourceError } from "../domain/errors.ts";
 import type {
   RemoteAudio,
@@ -49,10 +50,6 @@ function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
 /** Adapter for Jamendo's open Creative-Commons catalog. Search returns
  *  10 results per page; download streams Jamendo's CDN URL straight
  *  through (Jamendo doesn't require auth on the audio URL itself). */
@@ -93,7 +90,7 @@ export class JamendoSource implements RemoteSource {
     try {
       res = await this.#fetch(url);
     } catch (e) {
-      throw new RemoteSourceError(`request failed: ${msg(e)}`);
+      throw new RemoteSourceError(describeFetchError(e, url));
     }
     if (!res.ok) throw new RemoteSourceError(`HTTP ${res.status}`);
     let json: unknown;
@@ -135,7 +132,7 @@ export class JamendoSource implements RemoteSource {
     try {
       res = await this.#fetch(audioUrl);
     } catch (e) {
-      throw new RemoteSourceError(`request failed: ${msg(e)}`);
+      throw new RemoteSourceError(describeFetchError(e, audioUrl));
     }
     if (!res.ok) throw new RemoteSourceError(`HTTP ${res.status}`);
     if (!res.body) throw new RemoteSourceError("empty response body");
@@ -163,7 +160,7 @@ export class JamendoSource implements RemoteSource {
     try {
       res = await this.#fetch(url);
     } catch (e) {
-      throw new RemoteSourceError(`request failed: ${msg(e)}`);
+      throw new RemoteSourceError(describeFetchError(e, url));
     }
     if (!res.ok) return null;
     let json: unknown;
