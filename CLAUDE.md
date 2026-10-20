@@ -163,8 +163,11 @@ The repository enforces exactly-one-active per user.
   Remote record stores are NOT env-driven: they're configured per-user
   via Settings → Remote record stores (the `ManageRemoteLibraries` use
   case + repository).
-- `music/` is gitignored except `music/.gitkeep`; never commit audio files
-  or the local `.pass-the-aux.sqlite` database.
+- `music/` is gitignored except `music/.gitkeep` and the CC0 demo OGGs listed
+  in `CREDITS.md`; never commit other audio files or the local
+  `.pass-the-aux.sqlite` database. Any audio committed anywhere (demo
+  tracks, `public/samples/`) must be provably free to redistribute and
+  credited in `CREDITS.md`.
 
 ## Testing
 
@@ -197,7 +200,8 @@ Use the Notion MCP tools (`notion-query-database-view`,
 
 - Don't add runtime dependencies (beyond the sanctioned `mysql2`) or a
   build step for the server.
-- Don't commit anything under `music/` (except `.gitkeep`), `.env`, or
+- Don't commit anything under `music/` (except `.gitkeep` and the CC0 demo
+  OGGs), `.env`, or
   `public/js/` (generated).
 - Don't import outward across layers or wire adapters outside `main.ts`.
 - Don't mark a Notion card `Done` automatically — `In Review` is the
