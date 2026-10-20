@@ -1,29 +1,5 @@
 import type { Deck } from "./deck.js";
 import type { DeckId } from "./types.js";
-import {
-  beatFraction,
-  gridBeatFraction,
-  octaveMatchedTarget,
-  phaseBend,
-  phaseError,
-  tempoPercentFor,
-  withinRange,
-} from "./beatsync.js";
-
-export interface FadeOpts {
-  durationSec: number;
-  beatSync: boolean;
-  /** Fired every animation frame with the current crossfader position. */
-  onCrossfade?: (pos: number) => void;
-  /** Free-text status updates (UI surfaces them). */
-  onStatus?: (status: string) => void;
-  /** Fired exactly once when the fade reaches 1.0 (or is cancelled). */
-  onDone?: (info: { cancelled: boolean }) => void;
-}
-
-export interface FadeHandle {
-  cancel(): void;
-}
 
 /** Two-channel mixer: equal-power crossfader feeding a master gain stage. */
 export class Mixer {
@@ -42,6 +18,8 @@ export class Mixer {
   readonly #masterDest: MediaStreamAudioDestinationNode; // selectable sink
   readonly #cueDest: MediaStreamAudioDestinationNode;
   readonly #recordDest: MediaStreamAudioDestinationNode; // always-on mix tap
+  #xfGen = 0;
+  #xfPos = 0;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
@@ -179,103 +157,77 @@ export class Mixer {
     return this.#sampleBus;
   }
 
-  /** position: -1 (full A) .. 0 (center) .. +1 (full B) */
+  /** position: -1 (full A) .. 0 (center) .. +1 (full B). Cancels any
+   *  scheduled crossfade (the DJ's hand wins). */
   setCrossfade(position: number): void {
-    const p = (Math.max(-1, Math.min(1, position)) + 1) / 2;
+    const clamped = Math.max(-1, Math.min(1, position));
+    const p = (clamped + 1) / 2;
     const now = this.ctx.currentTime;
-    this.#gainA.gain.setTargetAtTime(Math.cos((p * Math.PI) / 2), now, 0.01);
-    this.#gainB.gain.setTargetAtTime(Math.sin((p * Math.PI) / 2), now, 0.01);
+    for (const [g, target] of [
+      [this.#gainA, Math.cos((p * Math.PI) / 2)],
+      [this.#gainB, Math.sin((p * Math.PI) / 2)],
+    ] as const) {
+      const v = g.gain.value;
+      g.gain.cancelScheduledValues(0);
+      g.gain.setValueAtTime(v, now);
+      g.gain.setTargetAtTime(target, now, 0.01);
+    }
+    this.#xfPos = clamped;
+    this.#xfGen++;
   }
 
   setMaster(v: number): void {
     this.#master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.01);
   }
 
+  /** Bumped by every crossfader change; a scheduled fade compares it to
+   *  see whether the DJ took the crossfader over mid-fade. */
+  get crossfadeGeneration(): number {
+    return this.#xfGen;
+  }
+
+  /** Current crossfader position (-1 .. +1) as last set or scheduled. */
+  get crossfadePosition(): number {
+    return this.#xfPos;
+  }
+
   /**
-   * One-shot crossfade from `from` to `to` with optional
-   * tempo-match + phase-bend ride. Owns the fade loop (was on Automix);
-   * Automix and the manual "Fade to next" button both call this so the
-   * mechanic is identical in both modes.
-   *
-   * Returns null when the incoming deck has no audio loaded.
+   * Schedule an equal-power crossfade from `fromPos` to `toPos` on the
+   * audio clock, starting at `when` (AudioContext time) and lasting
+   * `durationSec`. Runs on the audio thread, so it completes even when
+   * the tab is hidden and `requestAnimationFrame` is paused. Returns the
+   * crossfade generation the fade owns.
    */
-  fadeFromTo(from: Deck, to: Deck, opts: FadeOpts): FadeHandle | null {
-    if (!to.buffer) return null;
-
-    // ---- Tempo-match + phase-align (lifted from Automix.#beginFade) ----
-    let synced = false;
-    if (opts.beatSync) {
-      const ref = from.effectiveBPM;
-      const inB = to.baseBPM;
-      if (ref && inB) {
-        const target = octaveMatchedTarget(ref, inB);
-        const pct = tempoPercentFor(inB, target);
-        if (withinRange(pct, 8) && to.syncTo(target)) {
-          synced = true;
-        } else {
-          opts.onStatus?.(`beat-sync skipped (tempo out of range) — plain fade`);
-        }
-      }
+  scheduleCrossfade(
+    fromPos: number,
+    toPos: number,
+    when: number,
+    durationSec: number,
+  ): number {
+    const now = this.ctx.currentTime;
+    const start = Math.max(now, when);
+    const dur = Math.max(0.05, durationSec);
+    const n = 64;
+    const curveA = new Float32Array(n);
+    const curveB = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const pos = fromPos + ((toPos - fromPos) * i) / (n - 1);
+      const p = (Math.max(-1, Math.min(1, pos)) + 1) / 2;
+      curveA[i] = Math.cos((p * Math.PI) / 2);
+      curveB[i] = Math.sin((p * Math.PI) / 2);
     }
-
-    to.play();
-
-    if (synced) {
-      const beatIn = to.beatLengthSec;
-      const beatOut = from.beatLengthSec ?? beatIn;
-      if (beatIn && beatOut) {
-        // Prefer the actual beat grid as the phase anchor — the older
-        // `cuePoint`-based math silently returned wrong fractions
-        // whenever the cue wasn't on a real beat (the default cue is
-        // 0, which is rarely on the grid). With grids present, the
-        // planner has already seek-aligned both decks to a beat; the
-        // bend just rides out any setTimeout/audio-scheduling jitter.
-        const fOut = from.beats
-          ? gridBeatFraction(from.beats, from.currentTime, beatOut)
-          : beatFraction(from.currentTime, from.cuePoint, beatOut);
-        const fIn = to.beats
-          ? gridBeatFraction(to.beats, to.currentTime, beatIn)
-          : beatFraction(to.currentTime, to.cuePoint, beatIn);
-        const errBeats = phaseError(fIn, fOut);
-        const effBeatSec = 60 / (to.effectiveBPM || 120);
-        const { bend, durationMs } = phaseBend(errBeats, effBeatSec, 2);
-        to.bend(bend);
-        setTimeout(() => to.endBend(), durationMs);
-      }
-      opts.onStatus?.(`beat-synced Deck ${to.id} → fading…`);
-    } else {
-      opts.onStatus?.(`fading Deck ${from.id} → Deck ${to.id}…`);
+    for (const [g, c] of [
+      [this.#gainA, curveA],
+      [this.#gainB, curveB],
+    ] as const) {
+      const v = g.gain.value;
+      g.gain.cancelScheduledValues(0);
+      g.gain.setValueAtTime(v, now);
+      g.gain.setValueAtTime(c[0] ?? v, start);
+      g.gain.setValueCurveAtTime(c, start, dur);
     }
-
-    // ---- Fade loop (rAF-driven; was on Automix.#tickFade) ----
-    const startMs = performance.now();
-    const durMs = Math.max(50, opts.durationSec * 1000);
-    const fromPos = from.id === "A" ? -1 : 1;
-    const toPos = to.id === "A" ? -1 : 1;
-    let cancelled = false;
-    let finished = false;
-    const step = (): void => {
-      if (cancelled || finished) return;
-      const t = Math.min(1, (performance.now() - startMs) / durMs);
-      const pos = fromPos + (toPos - fromPos) * t;
-      this.setCrossfade(pos);
-      opts.onCrossfade?.(pos);
-      if (t < 1) {
-        requestAnimationFrame(step);
-        return;
-      }
-      finished = true;
-      opts.onDone?.({ cancelled: false });
-    };
-    requestAnimationFrame(step);
-
-    return {
-      cancel: (): void => {
-        if (finished) return;
-        cancelled = true;
-        opts.onDone?.({ cancelled: true });
-      },
-    };
+    this.#xfPos = toPos;
+    return ++this.#xfGen;
   }
 
   /** Post-master output level, 0..1 (RMS, lightly scaled). */

@@ -120,3 +120,18 @@ export function nextDownbeatAfter(
   }
   return null;
 }
+
+/** Average tempo of a beat grid (BPM), or null when it's too short. */
+export function gridBpm(beats: ArrayLike<number>): number | null {
+  const n = beats.length;
+  if (n < 8) return null;
+  const first = beats[0] ?? 0;
+  const last = beats[n - 1] ?? 0;
+  const span = last - first;
+  if (span <= 0) return null;
+  const bpm = (60 * (n - 1)) / span;
+  return Number.isFinite(bpm) && bpm > 30 && bpm < 300
+    ? Math.round(bpm * 100) / 100
+    : null;
+}
+
