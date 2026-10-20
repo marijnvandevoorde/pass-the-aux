@@ -243,3 +243,79 @@ test("users are isolated from each other", async () => {
     await cleanup();
   }
 });
+
+test("test connection: saved store uses its stored secret; form values override", async () => {
+  const db = new DatabaseSync(":memory:");
+  ensureSchema(db);
+  const repo = new SqliteRemoteLibrariesRepository(db);
+  const seen: Array<{ baseUrl: string | null; apiKey: string | null }> = [];
+  const uc = new ManageRemoteLibraries(repo, new SqliteUserRepository(db), (row) => ({
+    id: row.id,
+    displayName: row.name,
+    enabled: true,
+    async search() {
+      return { items: [], total: 0, offset: 0 };
+    },
+    async download(): Promise<never> {
+      throw new Error("unused");
+    },
+    async check() {
+      seen.push({ baseUrl: row.baseUrl, apiKey: row.apiKey });
+      return { ok: row.apiKey === "right", message: "m", tracks: null, indexing: false };
+    },
+  }));
+  try {
+    const saved = await uc.add("u1", { kind: "pta", name: "NAS", baseUrl: "http://nas.local", apiKey: "right" });
+    assert.equal((await uc.test("u1", { id: saved.id })).ok, true);
+    // Editing: a blank secret keeps the stored one, a typed one is tested.
+    assert.equal((await uc.test("u1", { id: saved.id, apiKey: "" })).ok, true);
+    assert.equal((await uc.test("u1", { id: saved.id, apiKey: "wrong" })).ok, false);
+    // Unsaved form values.
+    assert.equal((await uc.test("u1", { kind: "pta", baseUrl: "http://x.local", apiKey: "right" })).ok, true);
+    assert.deepEqual(seen.at(-1), { baseUrl: "http://x.local", apiKey: "right" });
+    // Missing fields are a result, not an exception.
+    const missing = await uc.test("u1", { kind: "pta", baseUrl: "http://x.local" });
+    assert.equal(missing.ok, false);
+    assert.match(missing.message, /secret/);
+    // Someone else's store isn't found.
+    await assert.rejects(uc.test("u2", { id: saved.id }), NotFoundError);
+    await assert.rejects(uc.test("u1", { kind: "nope" }), InvalidRequestError);
+  } finally {
+    db.close();
+  }
+});
+
+test("test connection: sources without check() are tested with a search", async () => {
+  const db = new DatabaseSync(":memory:");
+  ensureSchema(db);
+  const uc = new ManageRemoteLibraries(
+    new SqliteRemoteLibrariesRepository(db),
+    new SqliteUserRepository(db),
+    (row) =>
+      row.kind === "fma"
+        ? null
+        : {
+            id: row.id,
+            displayName: row.name,
+            enabled: true,
+            async search() {
+              if (row.apiKey !== "good") throw new Error("remote library: HTTP 401");
+              return { items: [], total: 0, offset: 0 };
+            },
+            async download(): Promise<never> {
+              throw new Error("unused");
+            },
+          },
+  );
+  try {
+    assert.deepEqual(await uc.test("u1", { kind: "jamendo", apiKey: "good" }), {
+      ok: true, message: "Connected", tracks: null, indexing: false,
+    });
+    assert.deepEqual(await uc.test("u1", { kind: "jamendo", apiKey: "bad" }), {
+      ok: false, message: "HTTP 401", tracks: null, indexing: false,
+    });
+    assert.match((await uc.test("u1", { kind: "fma", apiKey: "k" })).message, /isn't supported/);
+  } finally {
+    db.close();
+  }
+});

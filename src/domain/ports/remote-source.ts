@@ -11,6 +11,9 @@ export interface RemoteTrack {
   album: string;
   /** Thumbnail cover URL, or `null` when the service gave none. */
   coverUrl: string | null;
+  /** The cover needs the source's credentials: fetch it with
+   *  `RemoteSource.cover(remoteId)`, not from `coverUrl` directly. */
+  coverViaSource?: boolean;
   durationSec: number;
   hires: boolean;
   explicit: boolean;
@@ -42,6 +45,23 @@ export interface RemoteAudio {
   size: number | null;
 }
 
+/** Result of a "test connection": whether the store answers with the
+ *  configured credentials, in words the DJ can act on. */
+export interface RemoteCheck {
+  ok: boolean;
+  message: string;
+  /** Tracks the store holds, when it says. */
+  tracks: number | null;
+  /** The store is still indexing; search results may be incomplete. */
+  indexing: boolean;
+}
+
+/** A cover picture fetched through the source. */
+export interface RemoteCover {
+  data: Uint8Array;
+  mime: string;
+}
+
 /**
  * A remote, user-operated music source the mixer can search and pull
  * tracks from. Multiple sources can be registered at once (a self-hosted
@@ -71,4 +91,11 @@ export interface RemoteSource {
    *  the app). A source that runs on demand starts itself in the
    *  background; must not throw or block. */
   prepare?(): void;
+
+  /** Optional reachability + credentials check ("test connection").
+   *  Never throws; sources without it are checked with a search. */
+  check?(): Promise<RemoteCheck>;
+
+  /** Optional: the cover of a track whose `coverViaSource` is set. */
+  cover?(remoteId: string): Promise<RemoteCover | null>;
 }

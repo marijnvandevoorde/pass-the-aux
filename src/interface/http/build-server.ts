@@ -98,6 +98,7 @@ function isPublicRoute(method: string, p: string): boolean {
     (p === "/api/library" ||
       p === "/api/remote-search" ||
       p === "/api/remote-status" ||
+      p === "/api/remote-cover" ||
       p === "/api/audio" ||
       p === "/api/cover" ||
       p === "/api/beat-grid" ||
@@ -643,6 +644,12 @@ export function buildServer(
       await ctx.uc.manageRemoteLibraries.delete(ctx.uid, id);
       sendJson(res, 200, { ok: true });
     },
+    // "Test connection" for a saved store ({id}) or the form's unsaved
+    // values ({kind, baseUrl, apiKey}). Always 200 with {ok, message}.
+    "POST /api/remote/test": async (req, res, _url, ctx) => {
+      const body = await readJsonBody(req, config.bodyLimitBytes);
+      sendJson(res, 200, await ctx.uc.manageRemoteLibraries.test(ctx.uid, body));
+    },
     "POST /api/remote/active": async (req, res, _url, ctx) => {
       const body = (await readJsonBody(req, config.bodyLimitBytes)) as {
         id?: unknown;
@@ -657,7 +664,36 @@ export function buildServer(
         url.searchParams.get("q"),
         url.searchParams.get("offset"),
       );
-      sendJson(res, 200, { ...page, enabled: true });
+      // Covers that need the store's secret go through /api/remote-cover
+      // (with the crowd's session id, which scopes guests to the owner).
+      const sid = url.searchParams.get("s");
+      const items = page.items.map(({ coverViaSource, ...it }) =>
+        coverViaSource === true
+          ? {
+              ...it,
+              coverUrl:
+                `/api/remote-cover?id=${encodeURIComponent(it.remoteId)}` +
+                (sid ? `&s=${encodeURIComponent(sid)}` : ""),
+            }
+          : it,
+      );
+      sendJson(res, 200, { ...page, items, enabled: true });
+    },
+
+    "GET /api/remote-cover": async (_req, res, url, ctx) => {
+      const cover = await ctx.uc.searchRemote.cover(url.searchParams.get("id"));
+      if (cover === null) {
+        sendJson(res, 404, { error: "no cover" });
+        return;
+      }
+      const body = Buffer.from(cover.data);
+      res.writeHead(200, {
+        "Content-Type": cover.mime,
+        "Content-Length": body.length,
+        "Cache-Control": "private, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+      });
+      res.end(body);
     },
 
     "POST /api/remote-import": async (req, res, _url, ctx) => {

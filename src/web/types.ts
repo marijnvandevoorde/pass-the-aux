@@ -55,6 +55,14 @@ export interface RemoteStorePublic {
   createdAt: number;
 }
 
+/** Result of Settings → Remote record stores → Test connection. */
+export interface RemoteCheckResult {
+  ok: boolean;
+  message: string;
+  tracks: number | null;
+  indexing: boolean;
+}
+
 export interface RemoteStoreInput {
   kind: RemoteStoreKind;
   name: string;

@@ -2,10 +2,12 @@ import type {
   BeatGridResponse,
   CratesResponse,
   LibraryResponse,
+  RemoteCheckResult,
   RemoteImportResponse,
   RemoteSearchResponse,
   RemoteStatusResponse,
   RemoteStoreInput,
+  RemoteStoreKind,
   RemoteStorePublic,
 } from "./types.js";
 
@@ -220,6 +222,30 @@ export const api = {
         body: JSON.stringify({ id }),
       });
       if (!res.ok) throw new Error(`set active failed (${res.status})`);
+    },
+    /** Test a saved store (`id`) or the form's unsaved values. */
+    async test(input: {
+      id?: string;
+      kind?: RemoteStoreKind;
+      baseUrl?: string | null;
+      apiKey?: string | null;
+    }): Promise<RemoteCheckResult> {
+      try {
+        const res = await fetch("/api/remote/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const body = (await res.json().catch(() => ({}))) as Partial<RemoteCheckResult> & {
+          error?: string;
+        };
+        if (!res.ok || typeof body.ok !== "boolean") {
+          return { ok: false, message: body.error ?? `test failed (${res.status})`, tracks: null, indexing: false };
+        }
+        return body as RemoteCheckResult;
+      } catch {
+        return { ok: false, message: "couldn't reach Pass the Aux", tracks: null, indexing: false };
+      }
     },
   },
 
