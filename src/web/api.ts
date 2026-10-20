@@ -9,6 +9,9 @@ import type {
   RemoteStorePublic,
 } from "./types.js";
 
+/** Last queue sent by `api.wantGrids`, so an unchanged queue isn't resent. */
+let lastWantedGrids = "";
+
 /** Thin client for the server API. */
 export const api = {
   audioUrl(path: string): string {
@@ -44,6 +47,21 @@ export const api = {
     const res = await fetch(this.audioUrl(path));
     if (!res.ok) throw new Error(`audio request failed (${res.status})`);
     return res.arrayBuffer();
+  },
+
+  /** Tell the server which tracks are queued (most urgent first) so it
+   *  builds their beat grids before the rest of the library. Sends only
+   *  when the list changed; best-effort. */
+  wantGrids(paths: readonly string[]): void {
+    const list = paths.filter((p) => p !== "").slice(0, 32);
+    const key = list.join("\n");
+    if (list.length === 0 || key === lastWantedGrids) return;
+    lastWantedGrids = key;
+    void fetch("/api/beat-grid/want", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: list }),
+    }).catch(() => {});
   },
 
   /** per-track beat grid. Returns null when no grid exists

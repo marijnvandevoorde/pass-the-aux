@@ -235,3 +235,79 @@ test("a per-track failure is retried, and stored as 'no grid' only after 3", asy
   await uc.execute();
   assert.equal(grids.store.get("u1::a.mp3")?.beats.length, 0);
 });
+
+test("wanted tracks (queued, loaded, requested) are gridded first", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3", "c.mp3", "d.mp3"]);
+  const demand = new GridDemand();
+  demand.want("u1", ["c.mp3", "unknown.mp3"]);
+  const order: string[] = [];
+  const analyzer = fakeAnalyzer((id) => {
+    order.push(id);
+    // Queued while the run is busy with a.mp3: next, not last.
+    if (id === "a.mp3") demand.want("u1", ["d.mp3"]);
+    return dummyGrid(id);
+  });
+  const uc = new BuildBeatGrids(analyses, fakeGrids(), analyzer, "u1", demand);
+  const r = await uc.execute();
+  assert.deepEqual(order, ["c.mp3", "a.mp3", "d.mp3", "b.mp3"]);
+  assert.equal(r.built, 4);
+  // Handled tracks leave the demand; an id not in the library stays.
+  assert.deepEqual(demand.wanted("u1"), ["unknown.mp3"]);
+});
+
+test("wantedOnly builds just the wanted tracks", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3", "c.mp3"]);
+  const demand = new GridDemand();
+  demand.want("u1", ["b.mp3"]);
+  demand.want("other", ["a.mp3"]); // another user's demand doesn't count
+  const order: string[] = [];
+  const analyzer = fakeAnalyzer((id) => (order.push(id), dummyGrid(id)));
+  const uc = new BuildBeatGrids(analyses, fakeGrids(), analyzer, "u1", demand);
+  await uc.execute({ wantedOnly: true });
+  assert.deepEqual(order, ["b.mp3"]);
+});
+
+test("a wanted track stays wanted when the sidecar is down", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3"]);
+  const demand = new GridDemand();
+  demand.want("u1", ["b.mp3"]);
+  const analyzer = fakeAnalyzer(() => {
+    throw new AnalyzerUnavailableError("down");
+  });
+  const uc = new BuildBeatGrids(analyses, fakeGrids(), analyzer, "u1", demand);
+  const r = await uc.execute();
+  assert.equal(r.unavailable, true);
+  assert.deepEqual(demand.wanted("u1"), ["b.mp3"]);
+});
+
+test("GridDemand: notifies on new ids only, cools down after a track was handled", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  let now = 0;
+  const demand = new GridDemand(() => now);
+  let calls = 0;
+  demand.subscribe(() => calls++);
+  demand.want("u1", ["a.mp3"]);
+  demand.want("u1", ["a.mp3"]);
+  assert.equal(calls, 1);
+  demand.done("u1", "a.mp3");
+  demand.want("u1", ["a.mp3"]); // a deck re-fetching a grid that can't be built
+  assert.equal(calls, 1);
+  assert.deepEqual(demand.wanted("u1"), []);
+  now += 11 * 60_000;
+  demand.want("u1", ["a.mp3"]);
+  assert.equal(calls, 2);
+});
+
+test("GetBeatGrid puts a track without a grid in demand", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const demand = new GridDemand();
+  const grids = fakeGrids();
+  await grids.put("u1", dummyGrid("has.mp3"));
+  const get = new GetBeatGrid(grids, "u1", demand);
+  assert.ok(await get.execute("has.mp3"));
+  assert.equal(await get.execute("none.mp3"), null);
+  assert.deepEqual(demand.wanted("u1"), ["none.mp3"]);
+});

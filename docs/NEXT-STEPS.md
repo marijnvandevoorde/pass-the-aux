@@ -10,7 +10,6 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 ## Open
 
-- Grids are only fetched for loaded decks; a track queued before the background sweep reaches it waits (re-fetched every 20 s). Put queued / set tracks first in `BuildBeatGrids`, or build on demand.
 - Remote record stores: "test connection" when saving a store (needs pass-the-remote's `GET /api/status`).
 - Mobile DJ: queue and now-playing aren't persisted, a refresh loses them.
 - Mobile + crowd: the waveforms are decorative (generated from the track name), not the audio.

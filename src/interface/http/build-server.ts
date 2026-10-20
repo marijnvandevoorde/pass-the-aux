@@ -16,6 +16,7 @@ import type { AnalyzeLibrary } from "../../application/analyze-library.ts";
 import type { BuildBeatGrids } from "../../application/build-beat-grids.ts";
 import type { GetBeatGrid } from "../../application/get-beat-grid.ts";
 import { mixOutCueSec } from "../../domain/beat-grid.ts";
+import type { PrioritizeBeatGrids } from "../../application/grid-demand.ts";
 import type { Config } from "../../infrastructure/config.ts";
 import type { SessionStore } from "../../infrastructure/session-store.ts";
 import type { AuthService } from "../../application/auth-service.ts";
@@ -46,6 +47,7 @@ export interface UseCases {
   analyzeLibrary: AnalyzeLibrary;
   buildBeatGrids: BuildBeatGrids;
   getBeatGrid: GetBeatGrid;
+  prioritizeBeatGrids: PrioritizeBeatGrids;
 }
 
 /** Composition supplies this (an infrastructure watcher); the interface
@@ -227,6 +229,16 @@ export function buildServer(
         barStarts: grid.barStarts ? Array.from(grid.barStarts) : null,
         confidence: grid.confidence,
       });
+    },
+
+    // The DJ's browser reports its queue (most urgent first) so those
+    // tracks are gridded before the rest of the library. DJ-only.
+    "POST /api/beat-grid/want": async (req, res, _url, ctx) => {
+      const body = (await readJsonBody(req, config.bodyLimitBytes)) as {
+        paths?: unknown;
+      };
+      ctx.uc.prioritizeBeatGrids.execute(body?.paths);
+      sendJson(res, 200, { ok: true });
     },
 
     "GET /api/cover": async (_req, res, url, ctx) => {
@@ -425,6 +437,9 @@ export function buildServer(
         };
       }
       const status = sessions.enqueue(id, item);
+      if (status === "ok") {
+        ownerUc.prioritizeBeatGrids.execute([item.path]);
+      }
       if (status === "not-found") {
         sendJson(res, 404, { error: "session not found" });
       } else if (status === "played") {

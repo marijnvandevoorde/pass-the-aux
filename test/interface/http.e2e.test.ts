@@ -448,6 +448,21 @@ test("GET /api/beat-grid: 404 when missing, library payload stays beat-free", as
   }
 });
 
+test("POST /api/beat-grid/want accepts the DJ's queue", async () => {
+  const s = await startServer();
+  try {
+    const ok = await fetch(`${s.base}/api/beat-grid/want`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: ["demo.wav", 42, ""] }),
+    });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { ok: true });
+  } finally {
+    await s.close();
+  }
+});
+
 test("unknown API route → 404; root serves the SPA", async () => {
   const s = await startServer();
   try {
