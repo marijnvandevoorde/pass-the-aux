@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <script src="/consent.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b12" />
+    <title>Pass the Aux — privacy</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0b12;
+        --card: #16161f;
+        --line: #2a2a38;
+        --ink: #f3f3fa;
+        --dim: #9a9ab0;
+        --accent: #38e0c4;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 42rem; margin: 0 auto; padding: 40px 16px 64px; }
+      h1 { font-size: 26px; margin: 0 0 4px; }
+      h2 { font-size: 17px; margin: 32px 0 8px; }
+      p, li { color: var(--dim); }
+      strong { color: var(--ink); }
+      ul { padding-left: 20px; }
+      a { color: var(--accent); }
+      code { font-size: 13px; }
+      .updated { font-size: 13px; margin: 0 0 24px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy</h1>
+      <p class="updated">Last updated 20 October 2026</p>
+
+      <p>Pass the Aux is a small DJ app made by Small Victories. This page says what it keeps about you, and why.</p>
+
+      <h2>If you have an account</h2>
+      <ul>
+        <li><strong>Your login:</strong> your username, your password (stored only as a salted hash), and, if you turn on two-factor sign-in, its secret and recovery codes.</li>
+        <li><strong>Your library:</strong> the music you add, its cover art, and what the app works out about each track (tempo, key, energy, beat grid), plus the crates you make. It is private to your account.</li>
+        <li><strong>Record stores you connect:</strong> the name, address and access key you enter, so the app can search them for you.</li>
+        <li><strong>To fill in cover art and track details,</strong> the server may look up a track's artist and title in public music databases. Nothing about you is sent with it.</li>
+      </ul>
+
+      <h2>If you join a party as a guest</h2>
+      <p>You don't need an account. The first name you give, your requests and your votes are shared with the DJ and the other guests of that party. The server holds a party in memory only and never writes it to a database. Your name and votes are also remembered in your own browser, so you don't have to type them again.</p>
+
+      <h2>Cookies and your browser</h2>
+      <ul>
+        <li><strong>Sign-in cookie</strong> (<code>dj_sess</code>): keeps you signed in for up to 7 days. It is needed for the app to work.</li>
+        <li><strong>Local storage:</strong> your settings, your guest name and votes, and your cookie choice. They stay in your browser.</li>
+        <li><strong>Fonts:</strong> the guest and mobile pages load a font from Google Fonts, which means Google sees your IP address.</li>
+      </ul>
+
+      <h2>Analytics, only if you say yes</h2>
+      <p>To see how many people use the app, it can use <strong>Google Analytics</strong>, loaded through <strong>Google Tag Manager</strong>.</p>
+      <ul>
+        <li><strong>Nothing is tracked until you accept.</strong> A banner asks first. Until you click <em>Accept</em>, Google Analytics is told consent is denied and sets no cookies. <em>Reject</em> keeps it that way.</li>
+        <li><strong>If you accept:</strong> it counts the pages you open, where you came from, your approximate country, and your device and browser type, using the cookies <code>_ga</code> and <code>_ga_…</code>. The music you play, request or search for is never sent. Advertising cookies stay off, whatever you choose.</li>
+        <li><strong>Who processes it:</strong> Google, possibly outside the EU. See <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">how Google uses data from sites like this one</a>.</li>
+        <li><strong>Changed your mind?</strong> Click <a href="#" data-consent-open>Cookie settings</a> (also at the bottom of the sign-in page) and choose again. If you reject, analytics stops and the Google Analytics cookies are removed.</li>
+      </ul>
+
+      <h2>Your rights</h2>
+      <p>Want a copy of your data, or your account and library deleted? Questions about any of this, or about your rights under the GDPR? Mail <a href="mailto:hello@small-victories.co">hello@small-victories.co</a>.</p>
+
+      <p><a href="/login">Back to Pass the Aux</a></p>
+    </main>
+  </body>
+</html>
