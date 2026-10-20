@@ -9,4 +9,5 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 ## Open
 
+- Party sessions stored (#60): after merge + deploy, vote as a guest on prod, deploy again, and check the DJ still sees `▲ n` and the guest VOTED.
 - Visual test: `npm run visual-test` (mobile, crowd, party screen, desktop queue) before and after UI work; local only, the baselines are made on macOS.
