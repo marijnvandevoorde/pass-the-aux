@@ -14,6 +14,10 @@ import {
   canManageRemoteLibraries,
   type UserRepository,
 } from "../domain/ports/user-repository.ts";
+import type { RemoteCheck, RemoteSource } from "../domain/ports/remote-source.ts";
+
+/** Builds the runtime source for a row (composition supplies it). */
+export type RemoteSourceFactory = (row: RemoteLibraryRow) => RemoteSource | null;
 
 /** A row's safe-to-serialise shape — `apiKey` is never returned. */
 export interface RemoteLibraryPublic {
@@ -46,10 +50,16 @@ const KEY_MAX = 500;
 export class ManageRemoteLibraries {
   readonly #repo: RemoteLibrariesRepository;
   readonly #users: UserRepository;
+  readonly #sourceFor: RemoteSourceFactory | null;
 
-  constructor(repo: RemoteLibrariesRepository, users: UserRepository) {
+  constructor(
+    repo: RemoteLibrariesRepository,
+    users: UserRepository,
+    sourceFor: RemoteSourceFactory | null = null,
+  ) {
     this.#repo = repo;
     this.#users = users;
+    this.#sourceFor = sourceFor;
   }
 
   async list(uid: string): Promise<RemoteLibraryPublic[]> {
@@ -89,10 +99,65 @@ export class ManageRemoteLibraries {
     if (!ok) throw new NotFoundError("remote not found");
   }
 
+  /** "Test connection". `body.id` tests a saved store; the form's
+   *  `kind`/`baseUrl`/`apiKey` test unsaved values (when editing, an
+   *  empty `apiKey` keeps the stored one). Answers with a result, also
+   *  when the store can't be reached; only bad input throws. */
+  async test(uid: string, body: unknown): Promise<RemoteCheck> {
+    if (body === null || typeof body !== "object") {
+      throw new InvalidRequestError("invalid body");
+    }
+    const b = body as Record<string, unknown>;
+    const id = typeof b.id === "string" ? b.id.trim() : "";
+    let row: RemoteLibraryRow;
+    if (id !== "") {
+      const saved = (await this.#repo.listForUser(uid)).find((r) => r.id === id);
+      if (saved === undefined) throw new NotFoundError("remote not found");
+      const patch = validatePatch({ baseUrl: b.baseUrl, apiKey: b.apiKey });
+      row = {
+        ...saved,
+        baseUrl: patch.baseUrl ?? saved.baseUrl,
+        apiKey: patch.apiKey ?? saved.apiKey,
+      };
+    } else {
+      if (!isRemoteLibraryKind(b.kind)) throw new InvalidRequestError("invalid kind");
+      const baseUrl = optionalString(b.baseUrl, URL_MAX);
+      const apiKey = optionalString(b.apiKey, KEY_MAX);
+      row = {
+        id: "test",
+        userId: uid,
+        kind: b.kind,
+        name: "this store",
+        baseUrl,
+        apiKey,
+        isActive: false,
+        createdAt: 0,
+      };
+    }
+    try {
+      validateKindFields(row.kind, row.baseUrl, row.apiKey);
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : String(e));
+    }
+    const source = this.#sourceFor?.(row) ?? null;
+    if (source === null) return fail("this kind of store isn't supported yet");
+    if (source.check) return source.check();
+    try {
+      await source.search("a");
+      return { ok: true, message: "Connected", tracks: null, indexing: false };
+    } catch (e) {
+      return fail((e instanceof Error ? e.message : String(e)).replace(/^remote library: /, ""));
+    }
+  }
+
   async setActive(uid: string, id: string): Promise<void> {
     const ok = await this.#repo.setActive(uid, id);
     if (!ok) throw new NotFoundError("remote not found");
   }
+}
+
+function fail(message: string): RemoteCheck {
+  return { ok: false, message, tracks: null, indexing: false };
 }
 
 function validateNew(body: unknown): NewRemoteLibrary {

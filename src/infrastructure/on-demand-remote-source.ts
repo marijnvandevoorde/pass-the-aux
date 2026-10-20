@@ -1,6 +1,8 @@
 import { RemoteStartingError } from "../domain/errors.ts";
 import type {
   RemoteAudio,
+  RemoteCheck,
+  RemoteCover,
   RemoteSearchPage,
   RemoteSource,
 } from "../domain/ports/remote-source.ts";
@@ -56,6 +58,46 @@ export class OnDemandRemoteSource implements RemoteSource {
     } catch (e) {
       this.#lease.lost(); // the next call checks the server's health first
       throw e;
+    } finally {
+      this.#lease.release();
+    }
+  }
+
+  /** Starts the server like any other call; "starting up" is a result,
+   *  not an exception. */
+  async check(): Promise<RemoteCheck> {
+    try {
+      await this.#acquire();
+    } catch (e) {
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+        tracks: null,
+        indexing: false,
+      };
+    }
+    try {
+      if (this.#inner.check) return await this.#inner.check();
+      const page = await this.#inner.search("a");
+      return { ok: true, message: `Connected (a test search found ${page.total} tracks)`, tracks: null, indexing: false };
+    } catch (e) {
+      this.#lease.lost();
+      return {
+        ok: false,
+        message: (e instanceof Error ? e.message : String(e)).replace(/^remote library: /, ""),
+        tracks: null,
+        indexing: false,
+      };
+    } finally {
+      this.#lease.release();
+    }
+  }
+
+  async cover(remoteId: string): Promise<RemoteCover | null> {
+    if (!this.#inner.cover) return null;
+    await this.#acquire();
+    try {
+      return await this.#inner.cover(remoteId);
     } finally {
       this.#lease.release();
     }

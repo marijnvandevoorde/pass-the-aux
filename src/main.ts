@@ -37,6 +37,7 @@ import { AnalyzeLibrary } from "./application/analyze-library.ts";
 import { BuildBeatGrids } from "./application/build-beat-grids.ts";
 import { GetBeatGrid } from "./application/get-beat-grid.ts";
 import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
+import type { RemoteLibraryRow } from "./domain/ports/remote-libraries-repository.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
@@ -135,20 +136,23 @@ export function createApp(
         unavailable: (m) => new RemoteSourceError(m),
       })
     : null;
-  const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs, users);
+  const manageRemoteLibraries = new ManageRemoteLibraries(remoteLibs, users, (row) =>
+    sourceFor(row),
+  );
 
   /** Per-user resolver: looks up the active remote-library row and
    *  turns it into a runtime RemoteSource. Remotes are managed entirely
    *  through Settings → Remote record stores. */
   const onDemandLogged = new Set<string>();
-  const resolveActiveRemote = async (uid: string) => {
-    const row = await remoteLibs.getActive(uid);
-    const source = row === null ? null : buildRemoteSource(row);
+  // The runtime source for a stored row: spotify-api is wrapped so it
+  // starts on demand. Used for search/import and for "test connection".
+  const sourceFor = (row: RemoteLibraryRow) => {
+    const source = buildRemoteSource(row);
     if (
       source !== null &&
       spotifyWorker !== null &&
       spotifyScaling !== null &&
-      row?.kind === "pta" &&
+      row.kind === "pta" &&
       pointsAt(row.baseUrl, config.spotifyApiUrl)
     ) {
       if (!onDemandLogged.has(row.id)) {
@@ -158,6 +162,10 @@ export function createApp(
       return new OnDemandRemoteSource(source, spotifyWorker, spotifyScaling.waitMs);
     }
     return source;
+  };
+  const resolveActiveRemote = async (uid: string) => {
+    const row = await remoteLibs.getActive(uid);
+    return row === null ? null : sourceFor(row);
   };
 
   const coverSource = new RemoteCoverArtSource(config.coverLookup);

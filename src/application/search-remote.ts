@@ -1,5 +1,6 @@
 import { InvalidRequestError, RemoteDisabledError } from "../domain/errors.ts";
 import type {
+  RemoteCover,
   RemoteSearchPage,
   RemoteSource,
 } from "../domain/ports/remote-source.ts";
@@ -24,6 +25,16 @@ export class SearchRemote {
     if (s === null || !s.enabled) return false;
     s.prepare?.();
     return true;
+  }
+
+  /** A result's cover fetched through the active source (for results
+   *  marked `coverViaSource`); null when there's none. */
+  async cover(remoteId: unknown): Promise<RemoteCover | null> {
+    const id = typeof remoteId === "string" ? remoteId.trim() : "";
+    if (id === "" || id.length > 200) return null;
+    const source = await this.#resolve();
+    if (source === null || !source.enabled || !source.cover) return null;
+    return source.cover(id).catch(() => null);
   }
 
   /** Validates input, then returns one page of remote results. */

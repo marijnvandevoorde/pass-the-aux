@@ -3,10 +3,17 @@ import { describeFetchError } from "./fetch-error.ts";
 import { RemoteDisabledError, RemoteSourceError } from "../domain/errors.ts";
 import type {
   RemoteAudio,
+  RemoteCheck,
+  RemoteCover,
   RemoteSearchPage,
   RemoteSource,
   RemoteTrack,
 } from "../domain/ports/remote-source.ts";
+
+/** Largest cover accepted from a remote. */
+const COVER_MAX_BYTES = 2 * 1024 * 1024;
+/** Raster types only: an SVG served from our origin could carry script. */
+const COVER_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 export interface RemoteLibraryOptions {
   /** Stable id for this remote (the DB row id, or a built-in adapter id). */
@@ -105,7 +112,7 @@ export class RemoteLibrarySource implements RemoteSource {
     const rawItems = Array.isArray(tracks.items) ? tracks.items : [];
     const items = rawItems
       .filter((x) => obj(x).streamable !== false)
-      .map(mapTrack);
+      .map((x) => mapTrack(x, this.#base));
     const total = typeof tracks.total === "number" ? tracks.total : items.length;
     return { items, total, offset };
   }
@@ -125,6 +132,83 @@ export class RemoteLibrarySource implements RemoteSource {
       ext: extFromContentType(audioCt),
       size: Number.isFinite(len) && len > 0 ? len : null,
     };
+  }
+
+  /** "Test connection": `GET /api/status` (pass-the-remote 0.2+), or a
+   *  search on servers that don't have it. Never throws. */
+  async check(): Promise<RemoteCheck> {
+    const fail = (message: string): RemoteCheck => ({
+      ok: false,
+      message,
+      tracks: null,
+      indexing: false,
+    });
+    if (this.#base === null) return fail("no base URL set");
+    if (this.#secret === null) return fail("no secret set");
+    let res: Response;
+    try {
+      res = await this.#get("/api/status", {});
+    } catch (e) {
+      return fail(plain(e));
+    }
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = obj(await res.json());
+    } catch {
+      body = null;
+    }
+    if (res.status === 404 || (res.ok && body === null)) {
+      // An older pass-the-remote (or another server speaking the
+      // contract) without /api/status: a search proves URL + secret.
+      try {
+        const page = await this.search("a");
+        return {
+          ok: true,
+          message: `Connected (this server doesn't report its status; a test search found ${page.total} tracks)`,
+          tracks: null,
+          indexing: false,
+        };
+      } catch (e) {
+        const m = plain(e);
+        return fail(
+          /non-JSON|HTTP 404/.test(m)
+            ? `${m}: this URL doesn't answer like a Pass the Aux remote, check the base URL`
+            : m,
+        );
+      }
+    }
+    if (body === null) return fail(`HTTP ${res.status} (not a Pass the Aux remote?)`);
+    if (!res.ok || body.success !== true) {
+      return fail(typeof body.error === "string" && body.error !== "" ? body.error : `HTTP ${res.status}`);
+    }
+    const data = obj(body.data);
+    const tracks = typeof data.tracks === "number" ? data.tracks : null;
+    const indexing = data.scanning === true;
+    const lastError = typeof data.lastError === "string" ? data.lastError : null;
+    const count = tracks === null ? "" : ` · ${tracks} track${tracks === 1 ? "" : "s"}`;
+    let message = `Connected${count}`;
+    if (indexing) message += " · still indexing, results may be incomplete";
+    else if (lastError !== null) message += ` · the server says: ${lastError}`;
+    return { ok: true, message, tracks, indexing };
+  }
+
+  /** A track's cover from the remote's `GET /api/cover` (it needs the
+   *  secret, so the browser can't load it directly). */
+  async cover(remoteId: string): Promise<RemoteCover | null> {
+    let res: Response;
+    try {
+      res = await this.#get("/api/cover", { track_id: remoteId });
+    } catch {
+      return null;
+    }
+    const ct = (res.headers.get("content-type") ?? "").split(";", 1)[0]?.trim() ?? "";
+    const len = Number(res.headers.get("content-length"));
+    if (!res.ok || !COVER_TYPES.has(ct.toLowerCase()) || len > COVER_MAX_BYTES) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const data = new Uint8Array(await res.arrayBuffer());
+    return data.byteLength > 0 && data.byteLength <= COVER_MAX_BYTES ? { data, mime: ct.toLowerCase() } : null;
   }
 
   #get(
@@ -153,22 +237,38 @@ export class RemoteLibrarySource implements RemoteSource {
   }
 }
 
-function mapTrack(raw: unknown): RemoteTrack {
+/** The message of a thrown error without the domain prefix. */
+function plain(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return m.replace(/^remote library: /, "");
+}
+
+/** Whether `url` lives on the remote's own host: then it needs the
+ *  Bearer secret (pass-the-remote's /api/cover), unlike a CDN URL. */
+function onHost(url: string, base: string | null): boolean {
+  if (base === null) return false;
+  try {
+    return new URL(url, base).host === new URL(base).host;
+  } catch {
+    return false;
+  }
+}
+
+function mapTrack(raw: unknown, base: string | null): RemoteTrack {
   const it = obj(raw);
   const album = obj(it.album);
   const image = obj(album.image);
   const version = str(it.version).trim();
+  const coverUrl =
+    str(image.thumbnail) || str(image.small) || str(image.large) || null;
   return {
     remoteId: String(it.id ?? ""),
     title: str(it.title),
     version: version === "" ? null : version,
     artist: str(obj(it.performer).name),
     album: str(album.title),
-    coverUrl:
-      str(image.thumbnail) ||
-      str(image.small) ||
-      str(image.large) ||
-      null,
+    coverUrl,
+    ...(coverUrl !== null && onHost(coverUrl, base) ? { coverViaSource: true } : {}),
     durationSec: num(it.duration),
     hires: it.hires === true,
     explicit: it.parental_warning === true,

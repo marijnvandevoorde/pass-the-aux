@@ -2157,6 +2157,32 @@ select.r-q {
   display: none;
 }
 
+.rs-test {
+  font-size: 11px;
+  padding: 7px 12px;
+  margin-right: auto;
+}
+
+/* "Test connection" result, in the form and under a store's row. */
+.rs-check {
+  margin: 9px 0 0;
+  font-size: 11px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.rs-check[hidden] {
+  display: none;
+}
+.rs-check.is-ok {
+  color: var(--accent);
+}
+.rs-check.is-fail {
+  color: var(--danger);
+}
+.rs-item .rs-check {
+  margin-top: 3px;
+}
+
 /* ---- whole-window file-drop hint ------------------------------------- */
 
 body.dragging::after {

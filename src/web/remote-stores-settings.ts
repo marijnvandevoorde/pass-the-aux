@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import type {
+  RemoteCheckResult,
   RemoteStoreInput,
   RemoteStoreKind,
   RemoteStorePublic,
@@ -29,6 +30,10 @@ export class RemoteStoresSettings {
   readonly #keyHint = q<HTMLElement>("#rs-key-hint");
   readonly #cancel = q<HTMLButtonElement>("#rs-cancel");
   readonly #error = q<HTMLElement>("#rs-error");
+  readonly #testBtn = q<HTMLButtonElement>("#rs-test");
+  readonly #testOut = q<HTMLElement>("#rs-test-result");
+  /** Last "test connection" result per saved store (null = running). */
+  readonly #checks = new Map<string, RemoteCheckResult | null>();
 
   /** Currently shown rows (last fetch). */
   #rows: RemoteStorePublic[] = [];
@@ -46,6 +51,7 @@ export class RemoteStoresSettings {
     this.#addBtn.onclick = () => this.#openForm(null);
     this.#cancel.onclick = () => this.#closeForm();
     this.#kind.onchange = () => this.#syncKindFields();
+    this.#testBtn.onclick = () => void this.#testForm();
     this.#form.onsubmit = (e) => {
       e.preventDefault();
       void this.#submit();
@@ -82,7 +88,7 @@ export class RemoteStoresSettings {
     this.#group.classList.toggle("is-locked", !this.#canManage);
     this.#locked.hidden = this.#canManage;
     if (!this.#canManage) this.#closeForm(); // re-shows addBtn; hide it next
-    this.#addBtn.hidden = !this.#canManage;
+    this.#addBtn.hidden = !this.#canManage || !this.#form.hidden;
 
     this.#list.innerHTML = "";
     this.#empty.hidden = !this.#canManage || this.#rows.length > 0;
@@ -113,6 +119,11 @@ export class RemoteStoresSettings {
       (row.baseUrl !== null ? ` · ${row.baseUrl}` : "");
     main.appendChild(nameEl);
     main.appendChild(metaEl);
+    if (this.#checks.has(row.id)) {
+      const checkEl = document.createElement("p");
+      paintCheck(checkEl, this.#checks.get(row.id) ?? null);
+      main.appendChild(checkEl);
+    }
 
     const actions = document.createElement("div");
     actions.className = "rs-item-actions";
@@ -124,6 +135,13 @@ export class RemoteStoresSettings {
       useBtn.onclick = () => void this.#setActive(row.id);
       actions.appendChild(useBtn);
     }
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "rs-edit";
+    testBtn.textContent = "Test";
+    testBtn.title = "Test connection";
+    testBtn.onclick = () => void this.#testSaved(row.id);
+    actions.appendChild(testBtn);
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "rs-edit";
@@ -161,6 +179,7 @@ export class RemoteStoresSettings {
     this.#syncKindFields();
     this.#error.hidden = true;
     this.#error.textContent = "";
+    this.#testOut.hidden = true;
     this.#form.hidden = false;
     this.#addBtn.hidden = true;
     this.#name.focus();
@@ -190,23 +209,54 @@ export class RemoteStoresSettings {
     const apiKey = this.#key.value.trim() || null;
 
     try {
+      let saved: RemoteStorePublic;
       if (this.#editingId === null) {
         const input: RemoteStoreInput = { kind, name, baseUrl, apiKey };
-        await api.remoteStores.add(input);
+        saved = await api.remoteStores.add(input);
       } else {
         // Edit: only send apiKey when the user typed a new value, so
         // we don't overwrite the stored key with null.
         const patch: Partial<RemoteStoreInput> = { name, baseUrl };
         if (apiKey !== null) patch.apiKey = apiKey;
-        await api.remoteStores.update(this.#editingId, patch);
+        saved = await api.remoteStores.update(this.#editingId, patch);
       }
       this.#closeForm();
       await this.refresh();
       this.#onChange();
+      // Saved either way; the row then says whether it actually works.
+      void this.#testSaved(saved.id);
     } catch (e) {
       this.#error.hidden = false;
       this.#error.textContent = e instanceof Error ? e.message : "Save failed";
     }
+  }
+
+  /** Test the form's values (unsaved; when editing, a blank secret
+   *  means the stored one). */
+  async #testForm(): Promise<void> {
+    const kind = this.#kind.value as RemoteStoreKind;
+    const baseUrl = this.#base.value.trim() || null;
+    const apiKey = this.#key.value.trim() || null;
+    paintCheck(this.#testOut, null);
+    this.#testBtn.disabled = true;
+    try {
+      const result = await api.remoteStores.test(
+        this.#editingId === null
+          ? { kind, baseUrl, apiKey }
+          : { id: this.#editingId, baseUrl, apiKey },
+      );
+      paintCheck(this.#testOut, result);
+    } finally {
+      this.#testBtn.disabled = false;
+    }
+  }
+
+  async #testSaved(id: string): Promise<void> {
+    this.#checks.set(id, null);
+    this.#render();
+    const result = await api.remoteStores.test({ id });
+    this.#checks.set(id, result);
+    this.#render();
   }
 
   async #setActive(id: string): Promise<void> {
@@ -238,8 +288,16 @@ const KIND_LABEL: Record<RemoteStoreKind, string> = {
   fma: "Free Music Archive",
 };
 
+/** Shows a test result (null: still testing) in `el`. */
+function paintCheck(el: HTMLElement, result: RemoteCheckResult | null): void {
+  el.hidden = false;
+  el.className = "rs-check" + (result === null ? "" : result.ok ? " is-ok" : " is-fail");
+  el.textContent =
+    result === null ? "Testing…" : `${result.ok ? "✓" : "✕"} ${result.message}`;
+}
+
 const KEY_HINT: Partial<Record<RemoteStoreKind, string>> = {
-  pta: "Matches PTA_SECRET on the pass-the-remote server.",
+  pta: "Matches REMOTE_SECRET on the pass-the-remote server.",
   jamendo: "Free client_id from developer.jamendo.com.",
 };
 
