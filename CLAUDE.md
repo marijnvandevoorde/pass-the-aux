@@ -86,7 +86,11 @@ provisional one. If the sidecar is unavailable, `analyzeBeats` throws
 `AnalyzerUnavailableError` and the run stops without storing anything,
 so no track is ever marked done with a fallback result. An empty grid
 means "analysed, no pulse" (stored so it isn't retried; the API serves
-it as 404). With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
+it as 404). A sidecar 500 on one track (`TrackAnalysisFailedError`) is
+retried on later sweeps and stored as empty only after 3 failures; tracks
+that failed go to the back of the next sweep, so one bad track can't
+block the rest. The bar phase comes from the sidecar's `downbeatPhase`
+when it sends one (pass-the-beat ≥ analyzerVersion 2). With `PASS_THE_BEAT_K8S_DEPLOYMENT` set, `ScaledWorker`
 scales the sidecar up for a batch and back to zero when idle.
 
 ## spotify-api on demand
