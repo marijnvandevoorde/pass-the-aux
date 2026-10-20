@@ -5,6 +5,7 @@ import { applyKeyVars, keyHue, keyRelation, bpmDeltaLabel, TONE_VARS } from "./k
 import { createWaveform } from "./waveform.js";
 import { qrMatrix } from "./qr.js";
 import { autoMixDue, nextBarAfter, planMixOut, type MixOutPlan } from "./mobile-mix.js";
+import { MOBILE_STATE_KEY, parseMobileState, restorableState, serializeMobileState } from "./mobile-state.js";
 import { byId, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip, metaParts } from "./dom-utils.js";
 
 type LibTrack = LibraryResponse["tracks"][number];
@@ -106,6 +107,12 @@ let pendingPlayed: string[] = [];
 let skipping = false;
 let fading = false;
 let currentBeatGrid: BeatGridResponse | null = null;
+/** The track a running fade is bringing in: already off the queue, not
+ *  yet now-playing. Saved with the queue so a refresh mid-fade keeps it. */
+let fadingIn: QueueItem | null = null;
+/** False until the saved set has been restored: saving before that would
+ *  overwrite it with an empty one. */
+let stateReady = false;
 
 // ── Web Audio crossfade graph ──
 // iOS Safari ignores HTMLMediaElement.volume (it's read-only there), so a
@@ -189,6 +196,47 @@ const seekActive = (ratio: number): void => {
 const heroWave = createWaveform(waveEl, { seekable: true, onSeek: seekActive });
 const npWave = createWaveform(npWaveEl, { seekable: true, onSeek: seekActive });
 
+/** Real levels for the now-playing track: a loading pulse first, then the
+ *  track's waveform (or a flat line when there is none). */
+function loadWave(path: string): void {
+  heroWave.show(path, null);
+  npWave.show(path, null);
+  void api.getWaveform(path).then((w) => {
+    if (nowPlaying?.path !== path) return; // moved on meanwhile
+    if (w) {
+      heroWave.show(path, w.peaks);
+      npWave.show(path, w.peaks);
+    } else {
+      heroWave.unavailable(path);
+      npWave.unavailable(path);
+    }
+  });
+}
+
+// ── Persisting the set ──
+// Crowd requests are drained from the server, so this phone holds the
+// only copy of the queue: save it (and what's playing, and where) so a
+// refresh or a killed tab mid-set loses nothing.
+function saveState(): void {
+  if (!stateReady || !sessionId) return;
+  const pos = Number.isFinite(activeDeck.currentTime) ? activeDeck.currentTime : 0;
+  try {
+    localStorage.setItem(MOBILE_STATE_KEY, serializeMobileState({
+      sessionId,
+      nowPlaying,
+      positionSec: nowPlaying ? pos : 0,
+      playing: nowPlaying ? !activeDeck.paused : false,
+      queue: fadingIn ? [fadingIn, ...queue] : queue,
+      pendingPlayed,
+    }));
+  } catch { /* storage full / disabled: non-fatal */ }
+}
+let lastPositionSave = 0;
+window.addEventListener("pagehide", saveState);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveState();
+});
+
 // ── Audio events (both decks) ──
 function handleTimeUpdate(deck: HTMLAudioElement): void {
   if (deck !== activeDeck || !deck.duration || !isFinite(deck.duration)) return;
@@ -199,6 +247,10 @@ function handleTimeUpdate(deck: HTMLAudioElement): void {
     const fadeSec = sessionFadeMs / 1000;
     const plan = planMixOut(currentBeatGrid, deck.duration, deck.currentTime, fadeSec);
     if (autoMixDue(plan, deck.duration, deck.currentTime, fadeSec)) void doFadeToNext(true, plan);
+  }
+  if (Date.now() - lastPositionSave > 2000) {
+    lastPositionSave = Date.now();
+    saveState();
   }
   const ratio = deck.currentTime / deck.duration;
   heroWave.setProgress(ratio);
@@ -242,6 +294,7 @@ function setPlayState(playing: boolean): void {
   npPlayLabelEl.textContent = playing ? "PLAYING" : "PAUSED";
   nowHeroEl.classList.toggle("playing", playing);
   npFullEl.classList.toggle("playing", playing);
+  saveState();
 }
 
 // ── Transport ──
@@ -312,6 +365,7 @@ async function fadeIntoNext(mixOut: MixOutPlan | null = null): Promise<void> {
   fading = true;
   const next = queue.shift();
   if (!next) { fading = false; return; }
+  fadingIn = next;
   renderQueue();
 
   // Beat grid: the mix-out point, or the next bar boundary on the
@@ -369,6 +423,7 @@ async function fadeIntoNext(mixOut: MixOutPlan | null = null): Promise<void> {
   activeDeck = inDeck;
   inactiveDeck = outDeck;
   fading = false;
+  fadingIn = null;
   commitNowPlaying(next);
 }
 
@@ -390,6 +445,7 @@ function commitNowPlaying(next: QueueItem): void {
   nowPlaying = next;
   loadCover(next.path);
   void loadBeatGrid(next.path);
+  loadWave(next.path);
   renderNow();
   renderQueue();
 }
@@ -441,7 +497,6 @@ function syncNpFull(): void {
     npFullEl.style.removeProperty("--np-tint");
   }
   npReqEl.innerHTML = requesterChip(np.by, { prefix: "Requested by" });
-  npWave.rebuild(np.name + (np.artist ?? ""));
 }
 
 function openNpFull(): void {
@@ -467,9 +522,11 @@ function renderNow(): void {
     nowKeyLabelEl.textContent = "—";
     nowBpmValEl.textContent = "—";
     nowReqEl.innerHTML = "";
-    heroWave.rebuild("");
+    heroWave.clear();
+    npWave.clear();
     timeElEl.textContent = "0:00";
     timeRemEl.textContent = "-0:00";
+    saveState();
     return;
   }
   const np = nowPlaying;
@@ -479,8 +536,8 @@ function renderNow(): void {
   nowBpmValEl.textContent = np.bpm ? String(Math.round(np.bpm)) : "—";
   nowReqEl.innerHTML = requesterChip(np.by, { prefix: "" });
   if (np.camelot) applyKeyVars(nowKeyChipEl, np.camelot);
-  heroWave.rebuild(np.name + (np.artist ?? ""));
   if (npFullEl.classList.contains("open")) syncNpFull();
+  saveState();
 }
 
 // ── Mix-link HTML ──
@@ -502,7 +559,9 @@ function renderQueue(): void {
   queueListEl.innerHTML = "";
   queueEmptyEl.classList.toggle("visible", queue.length === 0);
   must<HTMLSpanElement>("ondeckFlag").style.visibility = queue.length === 0 ? "hidden" : "";
+  saveState();
   if (queue.length === 0) return;
+  void api.getWaveform(queue[0]!.path); // warm the cache for the next track
 
   if (nowPlaying && queue[0]) {
     queueListEl.insertAdjacentHTML("beforeend", mixLinkHTML(nowPlaying, queue[0]));
@@ -850,15 +909,32 @@ function renderQR(): void {
 async function sync(): Promise<void> {
   if (!sessionId) return;
   const np = nowPlaying
-    ? { name: nowPlaying.name, artist: nowPlaying.artist, bpm: nowPlaying.bpm, path: nowPlaying.path, by: nowPlaying.by }
+    ? {
+        name: nowPlaying.name,
+        artist: nowPlaying.artist,
+        bpm: nowPlaying.bpm,
+        path: nowPlaying.path,
+        by: nowPlaying.by,
+        positionSec: Number.isFinite(activeDeck.currentTime) ? activeDeck.currentTime : null,
+        durationSec: Number.isFinite(activeDeck.duration) ? activeDeck.duration : null,
+        playing: !activeDeck.paused,
+      }
     : null;
   const toReport = [...pendingPlayed];
   pendingPlayed = [];
+  saveState();
   let newItems: SessionQueueItem[] = [];
   try {
-    newItems = await api.syncSession(sessionId, toReport, np);
+    const upNext = [...(fadingIn ? [fadingIn] : []), ...queue].map((t) => ({
+      name: t.artist ? `${t.name} — ${t.artist}` : t.name,
+      path: t.path,
+      bpm: t.bpm,
+      by: t.by === "you" ? null : t.by,
+    }));
+    newItems = await api.syncSession(sessionId, toReport, np, upNext);
   } catch {
     pendingPlayed = [...toReport, ...pendingPlayed];
+    saveState();
     return;
   }
   if (newItems.length > 0) {
@@ -883,33 +959,83 @@ async function sync(): Promise<void> {
 }
 
 // ── Session init ──
-async function initSession(): Promise<void> {
+/** Join the saved session, or start one. Sessions live in the server's
+ *  memory, so after a server restart the saved one is gone: register it
+ *  again under the same id, so the QR the guests scanned keeps working.
+ *  Returns true when the session had to be registered again. */
+async function initSession(): Promise<boolean> {
   const saved = (() => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } })();
   if (saved) {
     const snap = await api.getSession(saved).catch(() => null);
     if (snap) {
       sessionId = saved;
       sessionFadeMs = (snap.config.fadeSeconds ?? 4) * 1000;
-      return;
+      return false;
     }
   }
   const { id, url } = await api.createSession({
     automix: false, autoFill: false, beatSync: false, fadeSeconds: 4, showUpNext,
-  });
+  }, saved ?? undefined);
   sessionId = id;
   crowdUrl = url;
   sessionFadeMs = 4000;
   try { localStorage.setItem(SESSION_KEY, id); } catch { /* ignore */ }
+  return saved !== null && saved === id;
+}
+
+/** Bring back the set saved before a refresh: the queue as it was, and
+ *  the track that was playing, cued at its position. Browsers don't let a
+ *  page start audio by itself, so it waits for a tap on play. */
+function restoreSet(reRegistered: boolean): void {
+  const raw = (() => { try { return localStorage.getItem(MOBILE_STATE_KEY); } catch { return null; } })();
+  const saved = restorableState(
+    parseMobileState(raw),
+    sessionId,
+    new Set(library.map((t) => t.path)),
+  );
+  if (!saved) return;
+  queue = saved.queue;
+  pendingPlayed = saved.pendingPlayed;
+  if (reRegistered) {
+    // The new server session doesn't know what played or is queued; tell
+    // it, so guests can't request those again.
+    for (const t of [saved.nowPlaying, ...saved.queue]) if (t) pendingPlayed.push(t.path);
+  }
+  const np = saved.nowPlaying;
+  if (np) {
+    nowPlaying = np;
+    activeDeck.src = api.audioUrl(np.path);
+    const at = saved.positionSec;
+    activeDeck.addEventListener("loadedmetadata", () => {
+      if (at > 0 && Number.isFinite(activeDeck.duration) && at < activeDeck.duration - 1) {
+        activeDeck.currentTime = at;
+      }
+      handleTimeUpdate(activeDeck);
+    }, { once: true });
+    activeDeck.load();
+    loadCover(np.path);
+    void loadBeatGrid(np.path);
+    loadWave(np.path);
+    setPlayState(false);
+    showToast(saved.playing
+      ? `Set restored: <b>${esc(np.name)}</b> at ${fmt(at)}. Tap play to carry on`
+      : `Set restored: <b>${esc(np.name)}</b>${queue.length ? ` + ${queue.length} queued` : ""}`);
+  } else if (queue.length > 0) {
+    showToast(`Queue restored: ${queue.length} track${queue.length > 1 ? "s" : ""}`);
+  }
 }
 
 // ── Main ──
 async function main(): Promise<void> {
   guestCountEl.textContent = "Starting…";
-  await initSession();
+  const reRegistered = await initSession();
   if (!crowdUrl) crowdUrl = `${location.origin}/crowd?s=${sessionId}`;
 
   library = await api.getLibrary({ limit: 2000 }).then((r) => r.tracks).catch(() => []);
   pathToTrack = new Map(library.map((t) => [t.path, t]));
+
+  restoreSet(reRegistered);
+  stateReady = true;
 
   void initRemote();
   renderLibrary();

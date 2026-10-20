@@ -11,7 +11,6 @@ type LibTrack = LibraryResponse["tracks"][number];
 const NAME_KEY = "pta-guest-name";
 const VOTES_KEY = "pta-votes";
 const STALE_MS = 30_000;
-const ASSUMED_DURATION = 210; // seconds, used for waveform progress
 
 const sessionId = new URLSearchParams(location.search).get("s") ?? "";
 
@@ -85,6 +84,11 @@ let playedPaths = new Set<string>();
 let requested = new Set<string>();
 let nowPlaying: NowPlaying | null = null;
 let nowPlayingAt: number | null = null;
+/** Server clock minus ours, so the playhead isn't off by the guest
+ *  phone's clock error. */
+let clockSkewMs = 0;
+/** Duration from the waveform, for DJ clients that don't report one. */
+let waveDurationSec: number | null = null;
 let isPlaying = false;
 let guest: { name: string; color: string; initials: string } | null = null;
 let myVotes: Set<string>;
@@ -96,23 +100,67 @@ try {
 }
 
 // ── Waveforms (display-only) ──
-const heroWave = createWaveform(waveEl, { seekable: false, minH: 12, maxH: 26 });
-const fullWave = createWaveform(npWaveEl, { seekable: false, minH: 14, maxH: 32 });
+const heroWave = createWaveform(waveEl, { seekable: false });
+// The fullscreen view doubles as the party screen on a laptop/TV: more,
+// finer bars there.
+const fullWave = createWaveform(npWaveEl, {
+  seekable: false,
+  bars: window.matchMedia("(min-width: 900px)").matches ? 110 : 58,
+});
+const timeRemEl = must<HTMLSpanElement>("timeRemain");
+const npRemainEl = must<HTMLSpanElement>("npRemain");
+
+let wavePath: string | null = null;
+function loadWave(path: string | null): void {
+  if (path === wavePath) return;
+  wavePath = path;
+  waveDurationSec = null;
+  if (!path) {
+    heroWave.unavailable("none");
+    fullWave.unavailable("none");
+    return;
+  }
+  heroWave.show(path, null);
+  fullWave.show(path, null);
+  void api.getWaveform(path, sessionId).then((w) => {
+    if (wavePath !== path) return; // the track changed meanwhile
+    if (w) {
+      waveDurationSec = w.durationSec;
+      heroWave.show(path, w.peaks);
+      fullWave.show(path, w.peaks);
+      tickProgress();
+    } else {
+      heroWave.unavailable(path);
+      fullWave.unavailable(path);
+    }
+  });
+}
 
 // ── Cover art (chip disc + fullscreen disc) ──
 const loadCover = makeCoverLoader(discCoverEl, npCoverEl);
 
 // ── Progress clock ──
+// The DJ reports the playhead with every sync (every few seconds); in
+// between we count on from it while it plays. A DJ that stopped syncing
+// (closed laptop, lost wifi) freezes the clock rather than inventing time.
 function tickProgress(): void {
   if (nowPlayingAt === null || !nowPlaying) return;
-  const stale = Date.now() - nowPlayingAt > STALE_MS;
-  isPlaying = !stale;
-  const currentTime = stale ? 0 : Math.max(0, (Date.now() - nowPlayingAt) / 1000);
-  const ratio = Math.min(1, currentTime / ASSUMED_DURATION);
+  const ageMs = Math.max(0, Date.now() + clockSkewMs - nowPlayingAt);
+  const stale = ageMs > STALE_MS;
+  isPlaying = !stale && nowPlaying.playing !== false;
+  const dur = nowPlaying.durationSec ?? waveDurationSec;
+  let pos = nowPlaying.positionSec ?? null;
+  if (pos !== null && isPlaying) pos += ageMs / 1000;
+  if (pos !== null && dur) pos = Math.min(pos, dur);
+  const ratio = pos !== null && dur ? pos / dur : 0;
   heroWave.setProgress(ratio);
   fullWave.setProgress(ratio);
-  timeElEl.textContent = fmt(currentTime);
-  npElapsedEl.textContent = fmt(currentTime);
+  const el = pos !== null ? fmt(pos) : "";
+  const rem = pos !== null && dur ? "-" + fmt(dur - pos) : "";
+  timeElEl.textContent = el;
+  npElapsedEl.textContent = el;
+  timeRemEl.textContent = rem;
+  npRemainEl.textContent = rem;
   nowHeroEl.classList.toggle("playing", isPlaying);
   npFullEl.classList.toggle("playing", isPlaying);
 }
@@ -131,8 +179,13 @@ function renderNowPlaying(): void {
     npBpmValEl.textContent = "—";
     reqByEl.innerHTML = "";
     npReqByEl.innerHTML = "";
-    heroWave.rebuild("");
-    fullWave.rebuild("");
+    wavePath = null;
+    heroWave.clear();
+    fullWave.clear();
+    timeElEl.textContent = "0:00";
+    npElapsedEl.textContent = "0:00";
+    timeRemEl.textContent = "";
+    npRemainEl.textContent = "";
     loadCover(null);
     nowHeroEl.classList.remove("playing");
     npFullEl.classList.remove("playing");
@@ -163,8 +216,7 @@ function renderNowPlaying(): void {
   reqByEl.innerHTML = requesterChip(np.by, { prefix: "" });
   npReqByEl.innerHTML = requesterChip(np.by, { prefix: "Requested by" });
 
-  heroWave.rebuild(np.name + (np.artist ?? ""));
-  fullWave.rebuild(np.name + (np.artist ?? ""));
+  loadWave(np.path);
   loadCover(np.path);
   tickProgress();
 }
@@ -197,9 +249,9 @@ function renderQueue(): void {
           ${who ? `<span class="q-dot">·</span>${who}` : ""}
         </div>
       </div>
-      <button class="vote-pill${voted ? " voted" : ""}" data-path="${esc(tr.path)}" aria-pressed="${voted}">
+      <button class="vote-pill${voted ? " voted" : ""}" data-path="${esc(tr.path)}" aria-pressed="${voted}" aria-label="Vote for ${esc(tr.name)}">
         <svg class="vp-arrow" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 1.5 11 8H1z"/></svg>
-        <span>${voted ? 2 : 1}</span>
+        <span>${voted ? "VOTED" : "VOTE"}</span>
       </button>`;
     queueListEl.appendChild(el);
   });
@@ -571,7 +623,12 @@ function applySnapshot(snap: Awaited<ReturnType<typeof api.getSession>>): void {
   if (!snap) return;
   nowPlaying = snap.nowPlaying ?? null;
   nowPlayingAt = snap.nowPlayingAt ?? null;
-  upNext = snap.pending;
+  if (typeof snap.serverTime === "number") clockSkewMs = snap.serverTime - Date.now();
+  // The DJ's real queue (newer DJ clients report it), plus requests the
+  // DJ hasn't picked up yet. Older clients: only the pending requests.
+  upNext = snap.upNext
+    ? [...snap.upNext, ...snap.pending.filter((p) => !snap.upNext!.some((u) => u.path === p.path))]
+    : snap.pending;
   playedPaths = new Set(snap.played);
   applyUpNextVisibility(snap.config.showUpNext);
   renderNowPlaying();
