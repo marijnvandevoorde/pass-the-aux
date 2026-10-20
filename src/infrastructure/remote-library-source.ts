@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { describeFetchError } from "./fetch-error.ts";
 import { RemoteDisabledError, RemoteSourceError } from "../domain/errors.ts";
 import type {
   RemoteAudio,
@@ -53,10 +54,6 @@ function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
 /**
  * Adapter for the unified Pass the Aux remote-library wire contract:
  * two unauthenticated-by-default GET endpoints, with a Bearer secret
@@ -151,7 +148,7 @@ export class RemoteLibrarySource implements RemoteSource {
     };
     if (this.#country !== null) headers["Token-Country"] = this.#country;
     return this.#fetch(url, { headers }).catch((e: unknown) => {
-      throw new RemoteSourceError(`request failed: ${msg(e)}`);
+      throw new RemoteSourceError(describeFetchError(e, url));
     });
   }
 }
