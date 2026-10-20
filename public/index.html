@@ -26,7 +26,7 @@
         <img class="brand-logo" src="/logo.png" alt="" />
         <span>PASS&nbsp;THE&nbsp;AUX</span>
       </div>
-      <div id="status">loading library…</div>
+      <div id="status" role="status" aria-live="polite" title="What just happened, and what automix is doing">loading library…</div>
 
       <div id="session-ctl">
         <label for="session-id">SESSION</label>
@@ -90,8 +90,8 @@
           <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
           <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
           <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
-          <button class="nudge-down" title="Nudge / pitch-bend behind the beat"aria-label="Nudge back">‹ NDG</button>
-          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat"aria-label="Nudge ahead">NDG ›</button>
+          <button class="nudge-down" title="Nudge: slow down for a moment to pull this deck back onto the beat" aria-label="Nudge back (slow down briefly)">‹ NUDGE</button>
+          <button class="nudge-up" title="Nudge: speed up for a moment to push this deck ahead onto the beat" aria-label="Nudge ahead (speed up briefly)">NUDGE ›</button>
           <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
           <button class="eject" title="Eject / skip this deck">⏏</button>
         </div>
@@ -104,7 +104,7 @@
           <button class="beatloop" data-beats="8">8</button>
           <button class="loop-toggle">LOOP</button>
           <button class="loop-clear" title="Clear loop">✕</button>
-          <button class="keylock" title="Keylock — change tempo without pitch">KEY</button>
+          <button class="keylock" title="Key lock: change the tempo without changing the pitch" aria-label="Key lock (tempo without pitch change)" aria-pressed="false">KEY LOCK</button>
         </div>
         <div class="controls">
           <div class="knob-wrap">
@@ -182,8 +182,8 @@
           <button class="pfl" title="Pre-listen this deck on the headphone device (PFL) — silent to the audience">🎧</button>
           <button class="play" title="Play / pause — keyboard: Space on the focused deck">▶ PLAY</button>
           <button class="sync" title="Tempo-match the other deck — keyboard: S on the focused deck">SYNC</button>
-          <button class="nudge-down" title="Nudge / pitch-bend behind the beat"aria-label="Nudge back">‹ NDG</button>
-          <button class="nudge-up" title="Nudge / pitch-bend ahead of the beat"aria-label="Nudge ahead">NDG ›</button>
+          <button class="nudge-down" title="Nudge: slow down for a moment to pull this deck back onto the beat" aria-label="Nudge back (slow down briefly)">‹ NUDGE</button>
+          <button class="nudge-up" title="Nudge: speed up for a moment to push this deck ahead onto the beat" aria-label="Nudge ahead (speed up briefly)">NUDGE ›</button>
           <button class="grid active" title="Toggle the beat grid overlay">GRID</button>
           <button class="eject" title="Eject / skip this deck">⏏</button>
         </div>
@@ -196,7 +196,7 @@
           <button class="beatloop" data-beats="8">8</button>
           <button class="loop-toggle">LOOP</button>
           <button class="loop-clear" title="Clear loop">✕</button>
-          <button class="keylock" title="Keylock — change tempo without pitch">KEY</button>
+          <button class="keylock" title="Key lock: change the tempo without changing the pitch" aria-label="Key lock (tempo without pitch change)" aria-pressed="false">KEY LOCK</button>
         </div>
         <div class="controls">
           <div class="knob-wrap">
@@ -362,7 +362,6 @@
               title="Reset the played-tracks history so guests can re-request any song"
             >Reset played</button>
             <button id="am-autofill" class="am-off">AUTO-FILL: OFF</button>
-            <span id="am-status" role="status">queue empty</span>
             <span id="am-countdown" aria-live="off"></span>
           </div>
           <ol id="queue-list"></ol>

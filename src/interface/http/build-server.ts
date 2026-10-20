@@ -19,7 +19,7 @@ import { mixOutCueSec } from "../../domain/beat-grid.ts";
 import type { PrioritizeBeatGrids } from "../../application/grid-demand.ts";
 import type { GetWaveform } from "../../application/get-waveform.ts";
 import type { Config } from "../../infrastructure/config.ts";
-import { parseNowPlaying, parseUpNext, type SessionStore } from "../../infrastructure/session-store.ts";
+import { parseNowPlaying, parseUpNext, sanitizeGuestId, type SessionStore } from "../../infrastructure/session-store.ts";
 import type { AuthService } from "../../application/auth-service.ts";
 import { sendJson, sendError } from "./responder.ts";
 import { readJsonBody } from "./body.ts";
@@ -112,7 +112,7 @@ function isPublicRoute(method: string, p: string): boolean {
   }
   if (
     method === "POST" &&
-    (p === "/api/session/sync" || p === "/api/session/queue")
+    (p === "/api/session/sync" || p === "/api/session/queue" || p === "/api/session/vote")
   ) {
     return true; // crowd → DJ live queue
   }
@@ -317,8 +317,14 @@ export function buildServer(
         return;
       }
       // serverTime lets the crowd screen correct for its clock when it
-      // extrapolates the playhead from nowPlayingAt.
-      sendJson(res, 200, { ...snap, serverTime: Date.now() });
+      // extrapolates the playhead from nowPlayingAt. `g` (a guest's id)
+      // adds the tracks that guest voted for.
+      const guest = sanitizeGuestId(url.searchParams.get("g"));
+      sendJson(res, 200, {
+        ...snap,
+        serverTime: Date.now(),
+        ...(guest !== "" ? { myVotes: sessions.votesOf(snap.id, guest) } : {}),
+      });
     },
 
     // DJ poll: hand back crowd adds since last call, record what the
@@ -344,7 +350,27 @@ export function buildServer(
       if (np !== undefined) sessions.setNowPlaying(id, np);
       const upNext = parseUpNext(body?.upNext);
       if (upNext !== undefined) sessions.setUpNext(id, upNext);
-      sendJson(res, 200, { pending: sessions.drain(id, played) });
+      sendJson(res, 200, {
+        pending: sessions.drain(id, played),
+        votes: sessions.voteCounts(id),
+      });
+    },
+
+    // Crowd vote on a queued track: one per guest per track, `on: false`
+    // takes it back. Shown as a count in the DJ's queue and Up Next.
+    "POST /api/session/vote": async (req, res, _url, _ctx) => {
+      const body = (await readJsonBody(req, config.bodyLimitBytes)) as {
+        id?: unknown;
+        path?: unknown;
+        guest?: unknown;
+        on?: unknown;
+      };
+      const id = typeof body?.id === "string" ? body.id : "";
+      const path = typeof body?.path === "string" ? body.path.trim() : "";
+      const r = sessions.vote(id, path, sanitizeGuestId(body?.guest), body?.on !== false);
+      if (r === "not-found") sendJson(res, 404, { error: "session not found" });
+      else if (r === "invalid") sendJson(res, 400, { error: "missing track or guest" });
+      else sendJson(res, 200, r);
     },
 
     // wipe the played-tracks dedup set so guests

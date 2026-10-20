@@ -42,6 +42,9 @@ import { GetBeatGrid } from "./application/get-beat-grid.ts";
 import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
 import { GetWaveform } from "./application/get-waveform.ts";
 import { FfmpegWaveformSource } from "./infrastructure/ffmpeg-waveform-source.ts";
+import type { WaveformRepository } from "./domain/ports/waveform-repository.ts";
+import { SqliteWaveformRepository } from "./infrastructure/sqlite-waveform-repository.ts";
+import { MysqlWaveformRepository } from "./infrastructure/mysql-waveform-repository.ts";
 import { FfmpegAudioAnalyzer } from "./infrastructure/ffmpeg-audio-analyzer.ts";
 import { BeatThisAnalyzer } from "./infrastructure/beat-this-analyzer.ts";
 import type { AudioAnalyzer } from "./domain/ports/audio-analyzer.ts";
@@ -86,6 +89,7 @@ export function createApp(
   let crates: CrateRepository;
   let users: UserRepository;
   let beatGrids: BeatGridRepository;
+  let waveforms: WaveformRepository;
   let remoteLibs: RemoteLibrariesRepository;
   if (config.storageDriver === "mysql") {
     const pool = createDbPool(config.db);
@@ -93,6 +97,7 @@ export function createApp(
     crates = new MysqlCrateRepository(pool);
     users = new MysqlUserRepository(pool);
     beatGrids = new MysqlBeatGridRepository(pool);
+    waveforms = new MysqlWaveformRepository(pool);
     remoteLibs = new MysqlRemoteLibrariesRepository(pool);
   } else {
     // sqlite (default) — single node:sqlite file, zero runtime deps.
@@ -101,6 +106,7 @@ export function createApp(
     crates = new SqliteCrateRepository(db);
     users = new SqliteUserRepository(db);
     beatGrids = new SqliteBeatGridRepository(db);
+    waveforms = new SqliteWaveformRepository(db);
     remoteLibs = new SqliteRemoteLibrariesRepository(db);
   }
   const auth = new AuthService(users, config.sessionSecret);
@@ -250,7 +256,7 @@ export function createApp(
       buildBeatGrids: new BuildBeatGrids(analyses, beatGrids, analyzer, uid, gridDemand),
       getBeatGrid: new GetBeatGrid(beatGrids, uid, gridDemand),
       prioritizeBeatGrids: new PrioritizeBeatGrids(gridDemand, uid),
-      getWaveform: new GetWaveform(new FfmpegWaveformSource(localFiles)),
+      getWaveform: new GetWaveform(new FfmpegWaveformSource(localFiles), waveforms, uid),
     };
     cache.set(uid, uc);
     return uc;
@@ -266,6 +272,35 @@ export function createApp(
   // are no accounts at all (legacy flat, no per-user subdirs) do we
   // sweep the root as "".
   if (opts.backgroundWatch) {
+    // Wanted-grid lane: loaded, queued and requested tracks are gridded
+    // here, one at a time, beside the sweep, so they don't wait while the
+    // sweep is busy with another user's library or the library-wide
+    // analysis. GridDemand claims keep the two off the same track; at
+    // most two uploads reach pass-the-beat at once (it queues 4).
+    let laneBusy = false;
+    let laneAgain = false;
+    const runWantedLane = async (): Promise<void> => {
+      if (laneBusy) {
+        laneAgain = true;
+        return;
+      }
+      laneBusy = true;
+      try {
+        do {
+          laneAgain = false;
+          for (const uid of gridDemand.users()) {
+            try {
+              const r = await useCasesFor(uid).buildBeatGrids.execute({ wantedOnly: true });
+              if (r.unavailable) break; // sidecar down: the rest would fail too
+            } catch {
+              /* best-effort: the track stays wanted for the next try */
+            }
+          }
+        } while (laneAgain);
+      } finally {
+        laneBusy = false;
+      }
+    };
     let sweeping = false;
     let pending = false;
     const sweepAll = async (): Promise<void> => {
@@ -287,9 +322,9 @@ export function createApp(
             try {
               const uc = useCasesFor(uid);
               await uc.enrichLibrary.execute(); // tags/cover/AcousticBrainz
-              // Grids for loaded/queued/requested tracks first: the
-              // library-wide analysis below can take a while.
-              await uc.buildBeatGrids.execute({ wantedOnly: true });
+              // A wanted track that only now has its library row (a crowd
+              // import) can be gridded by the lane right away.
+              void runWantedLane();
               await uc.analyzeLibrary.execute(); // ffmpeg+DSP bpm/key/energy
               await uc.buildBeatGrids.execute(); // phase grid
             } catch {
@@ -308,9 +343,8 @@ export function createApp(
       sweepTimer.unref?.();
     };
     watcher.subscribe(scheduleSweep);
-    // A newly wanted grid: a running sweep picks it up before its next
-    // track; otherwise start one now instead of at the next 5-minute tick.
-    gridDemand.subscribe(scheduleSweep);
+    // A newly wanted grid goes to the wanted lane, not the sweep.
+    gridDemand.subscribe(() => void runWantedLane());
     setTimeout(() => void sweepAll(), 1500).unref?.();
     // Safety net: fs.watch can miss events entirely (network mounts,
     // some copy tools, OS-coalesced events). A slow periodic backstop

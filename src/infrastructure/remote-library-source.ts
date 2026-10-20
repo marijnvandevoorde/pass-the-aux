@@ -114,7 +114,8 @@ export class RemoteLibrarySource implements RemoteSource {
       .filter((x) => obj(x).streamable !== false)
       .map((x) => mapTrack(x, this.#base));
     const total = typeof tracks.total === "number" ? tracks.total : items.length;
-    return { items, total, offset };
+    const indexing = obj(obj(env.data).library).scanning === true;
+    return indexing ? { items, total, offset, indexing } : { items, total, offset };
   }
 
   async download(remoteId: string): Promise<RemoteAudio> {

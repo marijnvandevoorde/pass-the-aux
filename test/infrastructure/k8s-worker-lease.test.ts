@@ -46,6 +46,16 @@ function worker(c: ReturnType<typeof fakeCluster>, over: Partial<ConstructorPara
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Polls until `cond` holds; fails after `ms`. Waits on the outcome
+ *  instead of a fixed sleep, so a busy test runner can't flake it. */
+async function until(cond: () => boolean, ms = 2000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) assert.fail("condition not met in time");
+    await wait(2);
+  }
+}
+
 test("scales up once for concurrent users, waits for the model, then idles to zero", async () => {
   const c = fakeCluster();
   const w = worker(c, { idleMs: 200 });
@@ -60,8 +70,7 @@ test("scales up once for concurrent users, waits for the model, then idles to ze
     await w.acquire(); // reused while warm — no new scale-up
     assert.deepEqual(c.scales, [1]);
     w.release();
-    await wait(400);
-    assert.equal(c.replicas, 0);
+    await until(() => c.replicas === 0);
     assert.deepEqual(c.scales, [1, 0]);
   } finally {
     w.close();
@@ -117,8 +126,26 @@ test("a worker left running by someone else is scaled down when idle", async () 
   await c.scale(1);
   const w = worker(c, { idleMs: 20 });
   try {
-    await wait(100);
+    await until(() => c.replicas === 0);
     assert.equal(c.replicas, 0);
+  } finally {
+    w.close();
+  }
+});
+
+test("an idle timer that fires before the clock says idle checks again", async () => {
+  // The clock lags the timer: when the idle timer fires, only part of
+  // idleMs has passed by `now()`. The old code returned and never
+  // looked again (the flake behind the test above).
+  const c = fakeCluster(0);
+  await c.scale(1);
+  let clock = 1_000;
+  const w = worker(c, { idleMs: 20, now: () => clock });
+  try {
+    await wait(40); // the first timer has fired, the clock hasn't moved
+    assert.equal(c.replicas, 1);
+    clock += 20;
+    await until(() => c.replicas === 0);
   } finally {
     w.close();
   }
@@ -130,13 +157,12 @@ test("warm() starts the worker without holding it, so it still idles to zero", a
   try {
     w.warm();
     w.warm(); // a second warm-up while starting shares the same start
-    await wait(20);
-    assert.equal(c.replicas, 1);
+    await until(() => c.replicas === 1);
     assert.deepEqual(c.scales, [1]);
     await w.acquire(); // already up: no new scale
     w.release();
     assert.deepEqual(c.scales, [1]);
-    await wait(200);
+    await until(() => c.scales.length === 2);
     assert.deepEqual(c.scales, [1, 0]);
   } finally {
     w.close();

@@ -92,3 +92,18 @@ test("flow: the crowd's Up Next shows the DJ's real queue", async ({ page, conte
   await guest.waitForFunction(() => document.querySelectorAll("#queueList .queue-item").length === 2, null, { timeout: 5000 });
   assert.equal(await text(guest, "#queueCount"), "2");
 });
+
+test("flow: a crowd vote shows as a count in the DJ's queue", async ({ page, context }) => {
+  await page.setViewportSize(PHONE);
+  const sid = await openMobileDJ(page);
+  await djAddTracks(page, 3); // one plays, two queued
+  await page.waitForTimeout(4500); // one DJ sync, so the crowd sees the queue
+  const guest = await context.newPage();
+  await guest.setViewportSize(PHONE);
+  await joinCrowd(guest, sid, "Robin");
+  await guest.waitForSelector("#queueList .vote-pill");
+  await guest.click("#queueList .vote-pill");
+  await guest.waitForFunction(() => document.querySelector("#queueList .vote-pill .vp-count")?.textContent === "1");
+  // The DJ's next sync brings the count into its queue.
+  await page.waitForFunction(() => document.querySelector(".ondeck-card .q-votes, .queue-item .q-votes")?.textContent === "▲ 1", null, { timeout: 9000 });
+});

@@ -311,3 +311,51 @@ test("GetBeatGrid puts a track without a grid in demand", async () => {
   assert.equal(await get.execute("none.mp3"), null);
   assert.deepEqual(demand.wanted("u1"), ["none.mp3"]);
 });
+
+test("a wanted-only run grids a wanted track while a full run is busy, never the same track twice", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const analyses = fakeAnalyses(["a.mp3", "b.mp3", "c.mp3"]);
+  const demand = new GridDemand();
+  const grids = fakeGrids();
+  const calls: string[] = [];
+  let releaseA!: () => void;
+  const aBlocked = new Promise<void>((r) => (releaseA = r));
+  const analyzer: AudioAnalyzer = {
+    beatAnalyzerVersion: BEAT_GRID_ANALYZER_VERSION,
+    async analyze() {
+      return null;
+    },
+    async analyzeBeats(id: string) {
+      calls.push(id);
+      if (id === "a.mp3") await aBlocked; // the sweep is stuck on a long upload
+      return dummyGrid(id);
+    },
+  };
+  const uc = new BuildBeatGrids(analyses, grids, analyzer, "u1", demand);
+  const sweep = uc.execute(); // takes a.mp3 and waits
+  await new Promise((r) => setImmediate(r));
+  demand.want("u1", ["c.mp3", "a.mp3"]);
+  // The lane: a.mp3 is claimed by the sweep, so only c.mp3.
+  await uc.execute({ wantedOnly: true });
+  assert.deepEqual(calls, ["a.mp3", "c.mp3"]);
+  assert.ok(grids.store.has("u1::c.mp3"));
+  releaseA();
+  const r = await sweep;
+  // The sweep skips c.mp3 (gridded by the lane) and does b.mp3.
+  assert.deepEqual(calls, ["a.mp3", "c.mp3", "b.mp3"]);
+  assert.equal(r.unavailable, false);
+  assert.deepEqual(demand.wanted("u1"), []);
+});
+
+test("GridDemand: users() lists users with wanted tracks; a claimed track isn't next", async () => {
+  const { GridDemand } = await import("../../src/application/grid-demand.ts");
+  const demand = new GridDemand();
+  demand.want("u1", ["a.mp3", "b.mp3"]);
+  demand.want("u2", []);
+  assert.deepEqual(demand.users(), ["u1"]);
+  assert.equal(demand.claim("u1", "a.mp3"), true);
+  assert.equal(demand.claim("u1", "a.mp3"), false);
+  assert.equal(demand.next("u1", new Set(["a.mp3", "b.mp3"])), "b.mp3");
+  demand.release("u1", "a.mp3");
+  assert.equal(demand.next("u1", new Set(["a.mp3", "b.mp3"])), "a.mp3");
+});

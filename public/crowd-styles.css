@@ -202,6 +202,7 @@ body {
 .vote-pill .vp-arrow { display: block; transition: transform .18s; }
 .vote-pill.voted { color: var(--accent); background: rgba(56,224,196,0.13); border-color: rgba(56,224,196,0.4); }
 .vote-pill.voted .vp-arrow { transform: translateY(-1px); }
+.vote-pill .vp-count { padding-left: 6px; margin-left: 1px; border-left: 1px solid currentColor; opacity: .85; }
 
 :root.hide-upnext .tab-bar { display: none; }
 :root.hide-upnext #fabCrate { display: none; }

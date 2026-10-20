@@ -39,6 +39,16 @@ export interface SessionState {
   /** Both decks, so a refresh doesn't lose them / shift the queue.
    *  Optional → old stored sessions still parse. */
   decks?: { A: SessionDeck | null; B: SessionDeck | null };
+  /** Crossfader position, -1 (A) … 1 (B). Optional → old sessions
+   *  restore to the centre. */
+  crossfade?: number;
+}
+
+/** The crossfader position to restore: the saved one, clamped to
+ *  -1…1, or the centre when none (or junk) was saved. */
+export function restoredCrossfade(s: SessionState | null): number {
+  const v = s?.crossfade;
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
 }
 
 export function emptySession(): SessionState {

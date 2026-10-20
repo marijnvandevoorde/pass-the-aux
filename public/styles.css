@@ -147,13 +147,21 @@ header .brand-logo {
 
 #status {
   color: var(--dim);
+  transition: color 0.2s;
   font-size: 12.5px;
+  /* Takes the free space and ellipsizes, instead of wrapping the header. */
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   border-left: 1px solid var(--line);
   padding-left: 16px;
+}
+
+/* Feedback on what the DJ just did reads brighter than the automix state. */
+#status.is-feedback {
+  color: var(--text);
 }
 
 /* Session-id control + Share, pushed right; topright group is last. */
@@ -533,6 +541,7 @@ main {
 }
 
 #am-countdown {
+  margin-left: auto;
   color: var(--accent);
   font-size: 11px;
   font-weight: 800;
@@ -1410,11 +1419,6 @@ select.r-q {
   padding: 7px 9px;
 }
 
-#am-status {
-  margin-left: auto;
-  color: var(--dim);
-  font-size: 12px;
-}
 
 #queue-list {
   list-style: none;
@@ -1507,6 +1511,19 @@ select.r-q {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#queue-list .q-votes {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 224, 196, 0.4);
+  background: rgba(56, 224, 196, 0.13);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 #queue-list .q-bpm {

@@ -9,7 +9,9 @@ import { byId as must, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, 
 type LibTrack = LibraryResponse["tracks"][number];
 
 const NAME_KEY = "pta-guest-name";
-const VOTES_KEY = "pta-votes";
+/** A random id per phone, so the server counts one vote per guest per
+ *  track without knowing who the guest is. */
+const GUEST_ID_KEY = "pta-guest-id";
 const STALE_MS = 30_000;
 
 const sessionId = new URLSearchParams(location.search).get("s") ?? "";
@@ -91,13 +93,28 @@ let clockSkewMs = 0;
 let waveDurationSec: number | null = null;
 let isPlaying = false;
 let guest: { name: string; color: string; initials: string } | null = null;
-let myVotes: Set<string>;
+/** This guest's votes and everyone's counts, as the server last said. */
+let myVotes = new Set<string>();
+let voteCounts: Record<string, number> = {};
+/** Tracks with a vote on its way, so a poll doesn't undo the tap. */
+const votesInFlight = new Set<string>();
 
-try {
-  myVotes = new Set(JSON.parse(localStorage.getItem(VOTES_KEY) ?? "[]") as string[]);
-} catch {
-  myVotes = new Set();
-}
+const guestId = ((): string => {
+  const fresh = (): string =>
+    (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36))
+      .replace(/[^a-z0-9]/gi, "")
+      .toLowerCase()
+      .slice(0, 32);
+  try {
+    const saved = localStorage.getItem(GUEST_ID_KEY);
+    if (saved && /^[a-z0-9]{8,32}$/.test(saved)) return saved;
+    const id = fresh();
+    localStorage.setItem(GUEST_ID_KEY, id);
+    return id;
+  } catch {
+    return fresh(); // private mode: votes last as long as the page
+  }
+})();
 
 // ── Waveforms (display-only) ──
 const heroWave = createWaveform(waveEl, { seekable: false });
@@ -234,6 +251,7 @@ function renderQueue(): void {
   upNext.forEach((tr, i) => {
     const camelot = pathToTrack.get(tr.path)?.camelot ?? null;
     const voted = myVotes.has(tr.path);
+    const count = voteCounts[tr.path] ?? 0;
     const el = document.createElement("div");
     el.className = "queue-item";
     if (camelot) applyKeyVars(el, camelot);
@@ -249,27 +267,45 @@ function renderQueue(): void {
           ${who ? `<span class="q-dot">·</span>${who}` : ""}
         </div>
       </div>
-      <button class="vote-pill${voted ? " voted" : ""}" data-path="${esc(tr.path)}" aria-pressed="${voted}" aria-label="Vote for ${esc(tr.name)}">
+      <button class="vote-pill${voted ? " voted" : ""}" data-path="${esc(tr.path)}" aria-pressed="${voted}"
+        aria-label="${voted ? "Take back your vote for" : "Vote for"} ${esc(tr.name)}${count > 0 ? ` (${count} vote${count === 1 ? "" : "s"})` : ""}">
         <svg class="vp-arrow" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 1.5 11 8H1z"/></svg>
-        <span>${voted ? "VOTED" : "VOTE"}</span>
+        <span>${voted ? "VOTED" : "VOTE"}</span>${count > 0 ? `<span class="vp-count">${count}</span>` : ""}
       </button>`;
     queueListEl.appendChild(el);
   });
 
   queueListEl.querySelectorAll<HTMLButtonElement>("[data-path]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const path = btn.dataset.path ?? "";
-      const wasVoted = myVotes.has(path);
-      if (wasVoted) myVotes.delete(path); else myVotes.add(path);
-      try { localStorage.setItem(VOTES_KEY, JSON.stringify([...myVotes])); } catch { /* ignore */ }
-      const tr = upNext.find((t) => t.path === path);
-      renderQueue();
-      if (!wasVoted && tr) showToast(`Voted for <b>${esc(tr.name)}</b>`);
-    });
+    btn.addEventListener("click", () => void toggleVote(btn.dataset.path ?? ""));
   });
 }
 
 // ── Played section render ──
+/** Vote or take the vote back: shown at once, then the server's count. */
+async function toggleVote(path: string): Promise<void> {
+  if (path === "" || votesInFlight.has(path)) return;
+  const on = !myVotes.has(path);
+  const before = voteCounts[path] ?? 0;
+  const set = (voted: boolean, count: number): void => {
+    if (voted) myVotes.add(path); else myVotes.delete(path);
+    if (count > 0) voteCounts[path] = count; else delete voteCounts[path];
+  };
+  set(on, Math.max(0, before + (on ? 1 : -1)));
+  votesInFlight.add(path);
+  renderQueue();
+  const r = await api.voteInSession(sessionId, path, guestId, on);
+  votesInFlight.delete(path);
+  const tr = upNext.find((t) => t.path === path);
+  if (r) {
+    set(r.voted, r.count);
+    if (on && tr) showToast(`Voted for <b>${esc(tr.name)}</b>`);
+  } else {
+    set(!on, before);
+    showToast("Your vote didn't get through, try again");
+  }
+  renderQueue();
+}
+
 function renderPlayed(): void {
   playedBodyEl.innerHTML = "";
   const playedTracks = [...playedPaths]
@@ -503,8 +539,14 @@ async function runRemoteSearch(): Promise<void> {
     const resp = await api.remoteSearch(q, 0, ac.signal, sessionId);
     if (seq !== remoteSeq) return; // a newer search superseded this one
     if (!resp.enabled) { showRemoteStatus("Extended record store not configured"); return; }
-    if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”`); return; }
+    const indexing = resp.indexing === true ? " · the store is still indexing, more may turn up" : "";
+    if (resp.items.length === 0) { showRemoteStatus(`No remote matches for “${q}”${indexing}`); return; }
     renderRemote(resp.items);
+    if (indexing !== "") {
+      // Above the results, which renderRemote has shown.
+      remoteStatusEl.hidden = false;
+      remoteStatusEl.textContent = "Still indexing: more may turn up";
+    }
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
     if (seq !== remoteSeq) return;
@@ -630,6 +672,17 @@ function applySnapshot(snap: Awaited<ReturnType<typeof api.getSession>>): void {
     ? [...snap.upNext, ...snap.pending.filter((p) => !snap.upNext!.some((u) => u.path === p.path))]
     : snap.pending;
   playedPaths = new Set(snap.played);
+  if (snap.votes) {
+    // Keep what's still on its way; the rest is the server's word.
+    const counts = { ...snap.votes };
+    const mine = new Set(snap.myVotes ?? []);
+    for (const p of votesInFlight) {
+      if (voteCounts[p] !== undefined) counts[p] = voteCounts[p]!; else delete counts[p];
+      if (myVotes.has(p)) mine.add(p); else mine.delete(p);
+    }
+    voteCounts = counts;
+    myVotes = mine;
+  }
   applyUpNextVisibility(snap.config.showUpNext);
   renderNowPlaying();
   renderQueue();
@@ -646,7 +699,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const snap = await api.getSession(sessionId);
+  const snap = await api.getSession(sessionId, guestId);
   if (!snap) {
     nameGateEl.querySelector<HTMLDivElement>(".gate-session")!.textContent = "Session not found — ask the DJ for a fresh code";
     gateGoEl.disabled = true;
@@ -666,7 +719,7 @@ async function main(): Promise<void> {
 
   // Poll every 8s — re-applies the full snapshot (incl. live showUpNext).
   setInterval(async () => {
-    applySnapshot(await api.getSession(sessionId));
+    applySnapshot(await api.getSession(sessionId, guestId));
   }, 8000);
 }
 

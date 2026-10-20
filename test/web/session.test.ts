@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   emptySession,
   parse,
+  restoredCrossfade,
   resumeDecision,
   serialize,
   type SessionState,
@@ -77,4 +78,14 @@ test("resumeDecision: nothing usable → none", () => {
     resumeDecision(withActive("gone", ["alsogone"]), new Set(["other"])),
     { kind: "none" },
   );
+});
+
+test("crossfader position round-trips; old sessions and junk restore to the centre", () => {
+  const s = emptySession();
+  s.crossfade = -0.62;
+  assert.equal(restoredCrossfade(parse(serialize(s))), -0.62);
+  assert.equal(restoredCrossfade(parse(serialize(emptySession()))), 0); // saved before this field
+  assert.equal(restoredCrossfade({ ...s, crossfade: 7 }), 1);
+  assert.equal(restoredCrossfade({ ...s, crossfade: Number.NaN }), 0);
+  assert.equal(restoredCrossfade(null), 0);
 });

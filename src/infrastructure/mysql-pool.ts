@@ -71,6 +71,16 @@ const SCHEMA = [
      bars_blob            MEDIUMBLOB   NULL,
      PRIMARY KEY (user_id, track_id)
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  // Overview waveforms for the mobile DJ and crowd screen (one byte
+  // per level), so a restart doesn't decode every track again.
+  `CREATE TABLE IF NOT EXISTS waveforms (
+     user_id      VARCHAR(32)  NOT NULL,
+     track_id     VARCHAR(512) NOT NULL,
+     duration_sec DOUBLE       NOT NULL,
+     peaks_blob   BLOB         NOT NULL,
+     created_at   BIGINT       NOT NULL,
+     PRIMARY KEY (user_id, track_id)
+   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   // Created here so the schema is whole; populated by auth.
   `CREATE TABLE IF NOT EXISTS users (
      id             CHAR(32)     NOT NULL,

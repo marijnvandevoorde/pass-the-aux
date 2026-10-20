@@ -83,6 +83,15 @@ const SCHEMA = `
     PRIMARY KEY (user_id, track_id)
   );
 
+  CREATE TABLE IF NOT EXISTS waveforms (
+    user_id      TEXT    NOT NULL,
+    track_id     TEXT    NOT NULL,
+    duration_sec REAL    NOT NULL,
+    peaks_blob   BLOB    NOT NULL,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (user_id, track_id)
+  );
+
   CREATE TABLE IF NOT EXISTS users (
     id             TEXT    PRIMARY KEY NOT NULL,
     username       TEXT    NOT NULL UNIQUE,

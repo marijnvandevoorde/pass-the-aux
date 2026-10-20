@@ -14,6 +14,9 @@ const COOLDOWN_MS = 10 * 60_000;
 export class GridDemand {
   readonly #wanted = new Map<string, string[]>();
   readonly #recent = new Map<string, number>();
+  /** Tracks being built right now (`uid\nid`): the wanted lane and the
+   *  library sweep run side by side and must not send one track twice. */
+  readonly #claimed = new Set<string>();
   readonly #listeners = new Set<() => void>();
   readonly #now: () => number;
 
@@ -39,9 +42,29 @@ export class GridDemand {
     if (added) for (const l of this.#listeners) l();
   }
 
-  /** The most urgent wanted track among `candidates`, if any. */
+  /** The most urgent wanted track among `candidates` that nobody is
+   *  building yet, if any. */
   next(uid: string, candidates: ReadonlySet<string>): string | undefined {
-    return this.#wanted.get(uid)?.find((id) => candidates.has(id));
+    return this.#wanted
+      .get(uid)
+      ?.find((id) => candidates.has(id) && !this.#claimed.has(`${uid}\n${id}`));
+  }
+
+  /** Take a track to build it. False when another run is on it. */
+  claim(uid: string, trackId: string): boolean {
+    const k = `${uid}\n${trackId}`;
+    if (this.#claimed.has(k)) return false;
+    this.#claimed.add(k);
+    return true;
+  }
+
+  release(uid: string, trackId: string): void {
+    this.#claimed.delete(`${uid}\n${trackId}`);
+  }
+
+  /** Users with wanted tracks, for the wanted-grid lane. */
+  users(): string[] {
+    return [...this.#wanted].filter(([, l]) => l.length > 0).map(([uid]) => uid);
   }
 
   /** The track has been handled (built, skipped or given up on). */

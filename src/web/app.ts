@@ -30,12 +30,14 @@ import {
 import { pickOutputDevice, deviceLabel } from "./audio-devices.js";
 import {
   SESSION_KEY,
+  restoredCrossfade,
   serialize,
   parse,
   resumeDecision,
   type SessionState,
   type SessionDeck,
 } from "./session.js";
+import { StatusLine } from "./status-line.js";
 import { qrMatrix } from "./qr.js";
 import { MixRecorder, recordingFileName, extForMime } from "./recorder.js";
 import { RemoteStoresSettings } from "./remote-stores-settings.js";
@@ -55,14 +57,16 @@ function must<T extends Element>(sel: string, root: ParentNode = document): T {
   return el as T;
 }
 
+// One status line (header) for feedback and the automix state.
 const statusEl = must<HTMLElement>("#status");
-const amStatusEl = must<HTMLElement>("#am-status");
-const setStatus = (m: string): void => {
-  statusEl.textContent = m;
-};
-const amStatus = (m: string): void => {
-  amStatusEl.textContent = m;
-};
+const statusLine = new StatusLine({
+  show: (text, kind) => {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-feedback", kind === "feedback");
+  },
+});
+const setStatus = (m: string): void => statusLine.feedback(m);
+const amStatus = (m: string): void => statusLine.automix(m);
 /** snap target for every transition (manual button and Automix). */
 let snapTo: SnapTo = "downbeat";
 
@@ -695,6 +699,18 @@ function startLiveUpdates(): void {
   };
 }
 
+/** Crowd votes per track path, from the last session sync. */
+let crowdVotes: Record<string, number> = {};
+let crowdVotesKey = "{}";
+
+/** The crowd's vote count for a queue row, or "" when nobody voted. */
+function votesBadge(path: string | null | undefined): string {
+  const n = path ? crowdVotes[path] ?? 0 : 0;
+  if (n <= 0) return "";
+  const label = `${n} crowd vote${n === 1 ? "" : "s"}`;
+  return `<span class="q-votes" title="${label}" aria-label="${label}">▲ ${n}</span>`;
+}
+
 function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   // Dropped local files have no path; the rest get their grids first.
   api.wantGrids(
@@ -739,7 +755,7 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
     li.innerHTML = `
       <span class="q-name"><span class="q-tag">NEXT · DECK ${next.deck}${
         next.loading ? " · loading…" : mix.fading ? " · mixing in" : ""
-      }</span>${esc(next.track.name)}</span>
+      }</span>${votesBadge(next.track.path)}${esc(next.track.name)}</span>
       <span class="q-bpm ${next.track.bpm ? "" : "missing"}">${next.track.bpm ? Math.round(next.track.bpm) : "—"}</span>
       <span class="q-actions">
         <button data-q="rm" title="Drop it; the next queued track takes its place" aria-label="Drop the lined-up track">✕</button>
@@ -754,7 +770,7 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
     const li = document.createElement("li");
     li.draggable = true;
     li.innerHTML = `
-      <span class="q-name" title="${esc(t.name)}">${esc(t.name)}</span>
+      <span class="q-name" title="${esc(t.name)}">${votesBadge(t.path)}${esc(t.name)}</span>
       <span class="q-bpm ${t.bpm ? "" : "missing"}">${t.bpm ? Math.round(t.bpm) : "—"}</span>
       <span class="q-actions">
         <button data-q="rm" title="remove">✕</button>
@@ -1089,11 +1105,11 @@ function wireDeck(id: DeckId): void {
   };
   must<HTMLButtonElement>(".keylock", root).onclick = () => {
     if (!deck.keylockAvailable) {
-      setStatus(`Deck ${id}: keylock unsupported in this browser`);
+      setStatus(`Deck ${id}: key lock isn't supported in this browser`);
       return;
     }
     deck.toggleKeylock();
-    setStatus(`Deck ${id} keylock ${deck.keylock ? "on" : "off"}`);
+    setStatus(`Deck ${id} key lock ${deck.keylock ? "on: tempo changes keep the pitch" : "off"}`);
   };
 
   // Pro-console redesign: tempo / EQ / volume are rotary knobs (Knob).
@@ -1924,11 +1940,12 @@ async function runRemoteSearch(): Promise<void> {
       showRemote("remote library is not configured");
       return;
     }
+    const indexing = resp.indexing === true ? " · the store is still indexing, more may turn up" : "";
     if (resp.items.length === 0) {
-      showRemote(`no remote matches for “${q}”`);
+      showRemote(`no remote matches for “${q}”${indexing}`);
       return;
     }
-    showRemote(`${resp.items.length} of ${resp.total} for “${q}”`);
+    showRemote(`${resp.items.length} of ${resp.total} for “${q}”${indexing}`);
     renderRemote(resp.items);
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
@@ -2440,6 +2457,7 @@ function saveSession(): void {
       A: deckSnapshot(decks.A),
       B: deckSnapshot(decks.B),
     },
+    crossfade: Number(must<HTMLInputElement>("#xfader").value) || 0,
   };
   try {
     localStorage.setItem(SESSION_KEY, serialize(state));
@@ -2484,6 +2502,11 @@ function restoreSession(): void {
   bs.classList.toggle("am-on", automix.beatSync);
   bs.classList.toggle("am-off", !automix.beatSync);
   must<HTMLInputElement>("#am-secs").value = String(s.config.fadeSeconds);
+
+  // The crossfader where it was (old sessions: centre).
+  const xf = restoredCrossfade(s);
+  must<HTMLInputElement>("#xfader").value = String(xf);
+  mixer.setCrossfade(xf);
 
   // restore the snap-to selection on the crossfader.
   snapTo = s.config.snapTo === "beat" ? "beat" : "downbeat";
@@ -2719,6 +2742,7 @@ function render(): void {
     );
     const kb = must<HTMLButtonElement>(".keylock", root);
     kb.classList.toggle("active", deck.keylock);
+    kb.setAttribute("aria-pressed", String(deck.keylock));
     kb.disabled = !deck.keylockAvailable;
 
     // Mirror the tempo knob to the deck's actual tempo (SYNC, Automix
@@ -2879,7 +2903,15 @@ function backgroundTick(): void {
   crowdSyncInFlight = true;
   void api
     .syncSession(sid, history.snapshot(), nowPlaying, crowdUpNext())
-    .then((pending) => {
+    .then(({ pending, votes }) => {
+      if (votes) {
+        const key = JSON.stringify(votes);
+        if (key !== crowdVotesKey) {
+          crowdVotesKey = key;
+          crowdVotes = votes;
+          renderQueue(automix.queue, automix);
+        }
+      }
       for (const t of pending) {
         if (history.has(t.path)) continue;
         if (automix.queue.some((q) => q.path === t.path)) continue;

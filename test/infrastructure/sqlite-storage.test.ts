@@ -235,3 +235,27 @@ test("sqlite: remote libraries scope by user", async () => {
   assert.equal((await repo.listForUser("bob")).length, 1);
   assert.equal((await repo.listForUser("carol")).length, 0);
 });
+
+test("sqlite: waveforms round-trip per user, upsert, and survive a new repository", async () => {
+  const { SqliteWaveformRepository } = await import("../../src/infrastructure/sqlite-waveform-repository.ts");
+  const db = fresh();
+  const repo = new SqliteWaveformRepository(db);
+  assert.equal(await repo.get("u1", "a.mp3"), null);
+  await repo.put("u1", "a.mp3", { durationSec: 201.5, peaks: [0, 0.37, 1] });
+  assert.deepEqual(await new SqliteWaveformRepository(db).get("u1", "a.mp3"), {
+    durationSec: 201.5,
+    peaks: [0, 0.37, 1],
+  });
+  assert.equal(await repo.get("u2", "a.mp3"), null);
+  await repo.put("u1", "a.mp3", { durationSec: 10, peaks: [0.5] });
+  assert.deepEqual(await repo.get("u1", "a.mp3"), { durationSec: 10, peaks: [0.5] });
+});
+
+test("sqlite: ensureSchema adds the waveforms table to an existing database", async () => {
+  const { SqliteWaveformRepository } = await import("../../src/infrastructure/sqlite-waveform-repository.ts");
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE beat_grids (user_id TEXT NOT NULL, track_id TEXT NOT NULL, duration_sec REAL NOT NULL, beat_count INTEGER NOT NULL, downbeat_phase INTEGER NOT NULL, first_solid_index INTEGER NOT NULL, confidence REAL NOT NULL, analyzer_version INTEGER NOT NULL, analyzed_at INTEGER NOT NULL, beats_blob BLOB NOT NULL, PRIMARY KEY (user_id, track_id))");
+  const repo = new SqliteWaveformRepository(db);
+  await repo.put("u1", "a.mp3", { durationSec: 1, peaks: [0.2] });
+  assert.deepEqual(await repo.get("u1", "a.mp3"), { durationSec: 1, peaks: [0.2] });
+});
