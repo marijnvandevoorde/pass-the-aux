@@ -49,6 +49,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Prod is HeatWave on the 26.x Innovation track (calendar versions); Dependabot
+      # still offers 9.x bumps, which would be a step back. 26.x updates keep flowing.
+      - dependency-name: "mysql"
+        versions: [">= 9.0, < 26.0"]
 
   # Actions used by the workflows in .github/workflows/.
   # Grouped too: action minor/patch bumps are routine and should land on their own.
