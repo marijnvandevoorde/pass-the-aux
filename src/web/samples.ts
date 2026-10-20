@@ -20,12 +20,6 @@ export const SAMPLES: readonly SamplePad[] = [
     key: "e",
     color: "#8a6d3b",
   },
-  {
-    name: "Blijvenzitten",
-    file: "blijvenzitten.mp3",
-    key: "q",
-    color: "#c25b8a",
-  },
 ] as const;
 
 const cache = new Map<string, AudioBuffer>();
