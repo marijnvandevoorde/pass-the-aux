@@ -1715,6 +1715,7 @@ function wireGlobal(): void {
   setInterval(() => {
     automix.tick();
     backgroundTick();
+    retryMissingGrids();
   }, 500);
 
   // On visibility change: save session immediately (so the offset is current if the
@@ -2730,6 +2731,30 @@ function render(): void {
   }
 
   requestAnimationFrame(render);
+}
+
+/** A deck whose track had no grid yet when it loaded (the background
+ *  sweep hadn't reached it) asks again every 20 s, so it gets beat sync
+ *  and its mix-in cue as soon as the grid exists. */
+const gridRetryAt: Record<DeckId, number> = { A: 0, B: 0 };
+function retryMissingGrids(): void {
+  const now = performance.now();
+  for (const id of ["A", "B"] as const) {
+    const deck = decks[id];
+    const path = deck?.track?.path;
+    if (!deck?.buffer || !path || deck.beats || now < gridRetryAt[id]) continue;
+    gridRetryAt[id] = now + 20_000;
+    const token = deck.currentLoadToken();
+    void api.getBeatGrid(path).then((g) => {
+      if (!g || !deck.isCurrentLoad(token) || deck.track?.path !== path) return;
+      deck.applyBeatGrid({
+        beats: g.beats,
+        downbeatPhase: g.downbeatPhase,
+        firstSolidCueSec: g.firstSolidCueSec,
+      });
+      applyAutoCue(id);
+    });
+  }
 }
 
 /** Session autosave + crowd sync. Runs on a timer, not in the rAF render

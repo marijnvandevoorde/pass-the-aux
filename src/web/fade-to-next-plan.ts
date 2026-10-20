@@ -194,6 +194,8 @@ export function planFade(
     } else {
       syncStatus = "tempo gap >8% — plain fade";
     }
+  } else if (opts.beatSync) {
+    syncStatus = "beat sync off: no BPM yet — plain fade";
   }
 
   const status = formatStatus(opts.snapTo, waitMs / 1000, syncStatus);

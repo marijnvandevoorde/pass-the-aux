@@ -269,6 +269,14 @@ test("minLead is honoured: very near current beat is skipped, not raced", () => 
   close(plan.snapAtSec, 1.0);
 });
 
+test("beat sync without a BPM says so instead of failing silently", () => {
+  const plan = planFade(outgoing(), incoming({ baseBPM: null }), {
+    snapTo: "beat",
+    beatSync: true,
+  });
+  assert.ok(plan?.status.includes("no BPM yet"));
+});
+
 test("tempo target ignores a nudge held at plan time (tempoRate, not rate)", () => {
   // Outgoing 120 BPM at +0 % tempo but a 4 % nudge held: target stays 120.
   const plan = planFade(

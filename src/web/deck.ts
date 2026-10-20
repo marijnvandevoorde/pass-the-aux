@@ -301,6 +301,12 @@ export class Deck {
     return ++this.#loadSeq;
   }
 
+  /** The current load token, without starting a new load (to check
+   *  later that the same track is still on the deck). */
+  currentLoadToken(): number {
+    return this.#loadSeq;
+  }
+
   isCurrentLoad(token: number): boolean {
     return token === this.#loadSeq;
   }
