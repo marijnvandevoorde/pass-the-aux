@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { GetWaveform } from "../../src/application/get-waveform.ts";
 import type { WaveformSource } from "../../src/domain/ports/waveform-source.ts";
 import type { Waveform } from "../../src/domain/waveform.ts";
+import type { WaveformRepository } from "../../src/domain/ports/waveform-repository.ts";
 import { ForbiddenPathError } from "../../src/domain/errors.ts";
 
 function fakeSource(result: (id: string) => Waveform | null) {
@@ -51,4 +52,42 @@ test("path traversal is refused before touching the source", async () => {
   const uc = new GetWaveform(src);
   await assert.rejects(uc.execute("../secret.mp3"), ForbiddenPathError);
   assert.equal(calls.length, 0);
+});
+
+function memoryStore() {
+  const rows = new Map<string, Waveform>();
+  const store: WaveformRepository = {
+    async get(uid, id) {
+      return rows.get(`${uid}::${id}`) ?? null;
+    },
+    async put(uid, id, w) {
+      rows.set(`${uid}::${id}`, w);
+    },
+  };
+  return { store, rows };
+}
+
+test("a decoded waveform is stored, and a new instance (a restart) reads it back without decoding", async () => {
+  const { store, rows } = memoryStore();
+  const first = fakeSource(() => W);
+  assert.deepEqual(await new GetWaveform(first.src, store, "u1").execute("a.mp3"), W);
+  assert.ok(rows.has("u1::a.mp3"));
+  const second = fakeSource(() => W);
+  const uc = new GetWaveform(second.src, store, "u1");
+  assert.deepEqual(await uc.execute("a.mp3"), W);
+  assert.deepEqual(second.calls, []);
+});
+
+test("a failing store only costs a decode", async () => {
+  const store: WaveformRepository = {
+    async get() {
+      throw new Error("db down");
+    },
+    async put() {
+      throw new Error("db down");
+    },
+  };
+  const { src, calls } = fakeSource(() => W);
+  assert.deepEqual(await new GetWaveform(src, store).execute("a.mp3"), W);
+  assert.equal(calls.length, 1);
 });

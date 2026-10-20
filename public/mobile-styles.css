@@ -457,6 +457,7 @@ body {
 .q-key { font-family: var(--mono); color: var(--k-fg, var(--accent)); font-weight: 600; }
 .q-bpm { font-family: var(--mono); color: var(--faint); }
 .q-dot { color: var(--faint); }
+.q-votes { color: var(--accent); font-family: var(--mono); font-weight: 700; }
 .who {
   width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;

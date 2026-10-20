@@ -23,6 +23,9 @@ import type { GridDemand } from "./grid-demand.ts";
  * Tracks in {@link GridDemand} (loaded, queued, crowd requests) go
  * first; demand is checked again before every track, so a track queued
  * mid-run is next instead of waiting for the rest of the library.
+ * A `wantedOnly` run can go side by side with a full one (the server's
+ * wanted-grid lane next to the library sweep): each track is claimed in
+ * the demand first, so the two never build the same track.
  */
 /** Per-track failures (the analyzer crashed on it) before the track is
  *  stored as "no grid" so it stops being retried. */
@@ -76,6 +79,8 @@ export class BuildBeatGrids {
     let built = 0;
     for (let id = pick(); id !== undefined; id = pick()) {
       remaining.delete(id);
+      // The other run is building it right now.
+      if (this.#demand && !this.#demand.claim(this.#userId, id)) continue;
       let handled = true;
       try {
         const existing = await this.#grids.get(this.#userId, id);
@@ -125,6 +130,7 @@ export class BuildBeatGrids {
         }
       } finally {
         if (handled) this.#demand?.done(this.#userId, id);
+        this.#demand?.release(this.#userId, id);
       }
     }
     return { scanned: rows.length, built, unavailable: false };

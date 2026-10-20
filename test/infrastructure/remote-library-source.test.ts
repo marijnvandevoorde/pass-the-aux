@@ -151,3 +151,18 @@ test("cover: raster images only, with the secret", async () => {
   assert.equal(await src.cover("svg"), null);
   assert.equal(await src.cover("none"), null);
 });
+
+test("search: library.scanning becomes indexing; absent or false leaves it out", async () => {
+  const page = (library: unknown) =>
+    fakeFetch({
+      "/api/get-music": () =>
+        json({ success: true, data: { tracks: { items: [track(null)], total: 1 }, ...(library ? { library } : {}) } }),
+    }).impl;
+  const busy = await source(page({ tracks: 10, scanning: true })).search("song");
+  assert.equal(busy.indexing, true);
+  assert.equal(busy.items.length, 1);
+  const done = await source(page({ tracks: 10, scanning: false })).search("song");
+  assert.equal(done.indexing, undefined);
+  const old = await source(page(null)).search("song");
+  assert.equal(old.indexing, undefined);
+});

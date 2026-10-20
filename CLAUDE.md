@@ -89,7 +89,11 @@ means "analysed, no pulse" (stored so it isn't retried; the API serves
 it as 404). A sidecar 500 on one track (`TrackAnalysisFailedError`) is
 retried on later sweeps and stored as empty only after 3 failures; tracks
 that failed go to the back of the next sweep, so one bad track can't
-block the rest. The bar phase comes from the sidecar's `downbeatPhase`
+block the rest. Tracks that need a grid soon (loaded, queued, crowd
+requests: `GridDemand`) are built by a separate wanted-grid lane in
+`main.ts`, one at a time beside the sweep; `GridDemand.claim` keeps the
+two off the same track, so pass-the-beat sees at most two uploads at once.
+The bar phase comes from the sidecar's `downbeatPhase`
 when it sends one (pass-the-beat ≥ analyzerVersion 2). From analyzer v3
 the sidecar also sends `barStarts` (every bar's downbeat; stored as
 `beat_grids.bars_blob`, Int32 LE) and `mixOutBeat` (`mix_out_index`);

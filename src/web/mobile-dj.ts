@@ -553,6 +553,18 @@ function mixLinkHTML(a: QueueItem, b: QueueItem): string {
 }
 
 // ── Queue render ──
+/** Crowd votes per track path, from the last session sync. */
+let crowdVotes: Record<string, number> = {};
+let crowdVotesKey = "{}";
+
+/** "· ▲ 3" for a queue row's meta line, or "" when nobody voted. */
+function votesMeta(path: string): string {
+  const n = crowdVotes[path] ?? 0;
+  if (n <= 0) return "";
+  const label = `${n} crowd vote${n === 1 ? "" : "s"}`;
+  return `<span class="q-dot">·</span><span class="q-votes" title="${label}" aria-label="${label}">▲ ${n}</span>`;
+}
+
 function renderQueue(): void {
   api.wantGrids(queue.map((q) => q.path));
   queueCountEl.textContent = String(queue.length);
@@ -580,6 +592,7 @@ function renderQueue(): void {
       <div class="od-sub">
         ${keyBpmMeta(od.camelot, od.bpm)}
         ${odWho ? `<span class="q-dot">·</span>${odWho}` : ""}
+        ${votesMeta(od.path)}
       </div>
     </div>
     <button class="remove-btn" data-idx="0" aria-label="Remove">×</button>`;
@@ -605,6 +618,7 @@ function renderQueue(): void {
         <div class="q-meta">
           ${keyBpmMeta(tr.camelot, tr.bpm)}
           ${who ? `<span class="q-dot">·</span>${who}` : ""}
+          ${votesMeta(tr.path)}
         </div>
       </div>
       <button class="remove-btn" data-idx="${i}" aria-label="Remove">×</button>`;
@@ -924,6 +938,7 @@ async function sync(): Promise<void> {
   pendingPlayed = [];
   saveState();
   let newItems: SessionQueueItem[] = [];
+  let votes: Record<string, number> | null = null;
   try {
     const upNext = [...(fadingIn ? [fadingIn] : []), ...queue].map((t) => ({
       name: t.artist ? `${t.name} — ${t.artist}` : t.name,
@@ -931,11 +946,19 @@ async function sync(): Promise<void> {
       bpm: t.bpm,
       by: t.by === "you" ? null : t.by,
     }));
-    newItems = await api.syncSession(sessionId, toReport, np, upNext);
+    ({ pending: newItems, votes } = await api.syncSession(sessionId, toReport, np, upNext));
   } catch {
     pendingPlayed = [...toReport, ...pendingPlayed];
     saveState();
     return;
+  }
+  if (votes) {
+    const key = JSON.stringify(votes);
+    if (key !== crowdVotesKey) {
+      crowdVotesKey = key;
+      crowdVotes = votes;
+      renderQueue();
+    }
   }
   if (newItems.length > 0) {
     const enriched: QueueItem[] = newItems.map((t) => {

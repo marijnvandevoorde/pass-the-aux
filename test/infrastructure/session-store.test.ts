@@ -163,3 +163,27 @@ test("parseUpNext: drops malformed entries, caps the list, absent means no chang
   const many = Array.from({ length: 500 }, (_, i) => ({ name: `t${i}`, path: `t${i}.mp3` }));
   assert.equal(parseUpNext(many)?.length, 100);
 });
+
+test("votes: one per guest per track, toggle off, counts in the snapshot", () => {
+  const s = new SessionStore();
+  const id = s.create(cfg);
+  assert.deepEqual(s.vote(id, "a.mp3", "g1", true), { count: 1, voted: true });
+  assert.deepEqual(s.vote(id, "a.mp3", "g1", true), { count: 1, voted: true }); // again: still one
+  assert.deepEqual(s.vote(id, "a.mp3", "g2", true), { count: 2, voted: true });
+  assert.deepEqual(s.vote(id, "b.mp3", "g1", true), { count: 1, voted: true });
+  assert.deepEqual(s.get(id)?.votes, { "a.mp3": 2, "b.mp3": 1 });
+  assert.deepEqual(s.votesOf(id, "g1").sort(), ["a.mp3", "b.mp3"]);
+  assert.deepEqual(s.vote(id, "b.mp3", "g1", false), { count: 0, voted: false });
+  assert.deepEqual(s.vote(id, "b.mp3", "g1", false), { count: 0, voted: false });
+  assert.deepEqual(s.voteCounts(id), { "a.mp3": 2 });
+  assert.equal(s.vote("nope", "a.mp3", "g1", true), "not-found");
+  assert.equal(s.vote(id, "", "g1", true), "invalid");
+  assert.equal(s.vote(id, "a.mp3", "", true), "invalid");
+});
+
+test("sanitizeGuestId keeps [a-z0-9], max 32", async () => {
+  const { sanitizeGuestId } = await import("../../src/infrastructure/session-store.ts");
+  assert.equal(sanitizeGuestId("AB-c_9!"), "abc9");
+  assert.equal(sanitizeGuestId("x".repeat(40)).length, 32);
+  assert.equal(sanitizeGuestId(5), "");
+});

@@ -368,6 +368,54 @@ test("session: create → crowd queue → DJ drains → replay blocked", async (
   }
 });
 
+test("session votes: guests vote per track, the DJ's sync and the crowd's snapshot carry the counts", async () => {
+  const s = await startServer();
+  try {
+    const { id } = (await (
+      await fetch(`${s.base}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: {} }),
+      })
+    ).json()) as { id: string };
+    const vote = (guest: string, on: boolean, path = "demo.wav") =>
+      fetch(`${s.base}/api/session/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, path, guest, on }),
+      });
+    assert.deepEqual(await (await vote("g1", true)).json(), { count: 1, voted: true });
+    assert.deepEqual(await (await vote("g2", true)).json(), { count: 2, voted: true });
+    assert.deepEqual(await (await vote("g2", false)).json(), { count: 1, voted: false });
+
+    const sync = (await (
+      await fetch(`${s.base}/api/session/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, played: [] }),
+      })
+    ).json()) as { votes: Record<string, number> };
+    assert.deepEqual(sync.votes, { "demo.wav": 1 });
+
+    const snap = (await (await fetch(`${s.base}/api/session?id=${id}&g=g1`)).json()) as {
+      votes: Record<string, number>;
+      myVotes: string[];
+    };
+    assert.deepEqual(snap.votes, { "demo.wav": 1 });
+    assert.deepEqual(snap.myVotes, ["demo.wav"]);
+
+    assert.equal((await vote("", true)).status, 400);
+    const bad = await fetch(`${s.base}/api/session/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "zzz", path: "demo.wav", guest: "g1" }),
+    });
+    assert.equal(bad.status, 404);
+  } finally {
+    await s.close();
+  }
+});
+
 test("POST /api/session/clear-played: clears dedup so the same track can be re-queued", async () => {
   const s = await startServer();
   try {

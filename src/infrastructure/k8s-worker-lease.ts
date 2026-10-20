@@ -78,6 +78,8 @@ export interface ScaledWorkerOptions {
   /** The error `acquire` throws when the worker can't be started.
    *  Default: `AnalyzerUnavailableError`. */
   unavailable?: (message: string) => Error;
+  /** Clock for the idle check (tests). Default `Date.now`. */
+  now?: () => number;
 }
 
 /**
@@ -103,9 +105,10 @@ export class ScaledWorker implements WorkerLease {
       fetchImpl: globalThis.fetch,
       log: (m) => console.log(m),
       unavailable: (m) => new AnalyzerUnavailableError(m),
+      now: Date.now,
       ...opts,
     };
-    this.#lastUsed = Date.now();
+    this.#lastUsed = this.#o.now();
     this.#armIdle();
     this.#sweep = setInterval(
       () => void this.#scaleDownIfIdle(),
@@ -134,7 +137,7 @@ export class ScaledWorker implements WorkerLease {
 
   release(): void {
     this.#holders = Math.max(0, this.#holders - 1);
-    this.#lastUsed = Date.now();
+    this.#lastUsed = this.#o.now();
     if (this.#holders === 0) this.#armIdle();
   }
 
@@ -197,15 +200,22 @@ export class ScaledWorker implements WorkerLease {
     }
   }
 
-  #armIdle(): void {
+  #armIdle(delayMs = this.#o.idleMs): void {
     clearTimeout(this.#idleTimer);
-    this.#idleTimer = setTimeout(() => void this.#scaleDownIfIdle(), this.#o.idleMs);
+    this.#idleTimer = setTimeout(() => void this.#scaleDownIfIdle(), delayMs);
     this.#idleTimer.unref?.();
   }
 
   async #scaleDownIfIdle(): Promise<void> {
     if (this.#holders > 0 || this.#starting) return;
-    if (Date.now() - this.#lastUsed < this.#o.idleMs) return;
+    // A timer can fire a millisecond before the wall clock agrees that
+    // `idleMs` has passed. Check again for the rest instead of giving up
+    // (which left a stray worker running until the 10-minute sweep).
+    const left = this.#o.idleMs - (this.#o.now() - this.#lastUsed);
+    if (left > 0) {
+      this.#armIdle(left);
+      return;
+    }
     const wasReady = this.#ready;
     this.#ready = false;
     try {

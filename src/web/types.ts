@@ -31,6 +31,8 @@ export interface RemoteSearchResponse {
   total: number;
   offset: number;
   enabled: boolean;
+  /** The store is still indexing; results may be incomplete. */
+  indexing?: boolean;
 }
 
 export interface RemoteStatusResponse {

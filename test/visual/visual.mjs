@@ -323,7 +323,7 @@ async function run() {
     await d.waitForSelector('#queue-list .q-next', { timeout: 10000 });
     await d.waitForFunction(() => !document.querySelector('#queue-list .q-next')?.textContent.includes('loading'));
     await d.click('.deck[data-deck="A"] .play'); // pause: the countdown stops
-    await check('desktop-01-queue-next', await shot(d.locator('#queue-side'), d, ['#am-status', '#am-countdown', '#app-version']));
+    await check('desktop-01-queue-next', await shot(d.locator('#queue-side'), d, ['#am-countdown', '#app-version']));
   } finally {
     await browser.close();
     server.kill('SIGKILL');

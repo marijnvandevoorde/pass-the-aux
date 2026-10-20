@@ -150,3 +150,24 @@ test("MySQL repositories round-trip (skips without a DB)", async (t) => {
     await pool.end();
   }
 });
+
+test("MySQL waveforms round-trip (skips without a DB)", async (t) => {
+  const pool = await reachable();
+  if (!pool) {
+    t.skip("no MySQL reachable (start docker-compose.mysql.yml)");
+    return;
+  }
+  const { MysqlWaveformRepository } = await import("../../src/infrastructure/mysql-waveform-repository.ts");
+  try {
+    const repo = new MysqlWaveformRepository(pool);
+    const u = `__itw__${Date.now()}`.slice(0, 32);
+    assert.equal(await repo.get(u, "a.mp3"), null);
+    await repo.put(u, "a.mp3", { durationSec: 201.5, peaks: [0, 0.37, 1] });
+    assert.deepEqual(await repo.get(u, "a.mp3"), { durationSec: 201.5, peaks: [0, 0.37, 1] });
+    await repo.put(u, "a.mp3", { durationSec: 10, peaks: [0.5] });
+    assert.deepEqual(await repo.get(u, "a.mp3"), { durationSec: 10, peaks: [0.5] });
+    await pool.execute("DELETE FROM waveforms WHERE user_id = ?", [u]);
+  } finally {
+    await pool.end();
+  }
+});

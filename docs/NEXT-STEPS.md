@@ -5,12 +5,11 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 ## Merge and deploy (2026-10-20 review round)
 
-- Deploy order for the mix-out / bars / tempo PR: merge and deploy pass-the-beat#35 (analyzer v3) first, then merge this repo's PR (bumps `BEATTHIS_ANALYZER_VERSION` to 5, re-grids every track) and `npm run deploy`.
+- Merge the last-items PR (crowd votes, crossfader restore, one status line, remote "still indexing", stored waveforms, wanted-grid lane, lease test fix).
+- Deploy order: deploy pass-the-beat#35 (analyzer v3) first, then `npm run deploy` here (#53 bumped `BEATTHIS_ANALYZER_VERSION` to 5, so every track is re-gridded).
 - After deploy, check a real set on prod: automix through 3+ transitions in a background tab (starts at the orange mix-out marker, tempo glides back after each), Fade to next on gridded tracks, mix-in cue on the lined-up track.
 
 ## Open
 
-- Desktop: the crossfader position isn't restored after a refresh (centre).
-- Crowd votes stay on the guest's phone: the VOTE pill toggles but nothing reaches the DJ. Make votes real (count per track on the server, shown in the DJ's queue) or drop the pill.
-- Waveforms (`/api/waveform`) are cached in server memory, so each restart recomputes them (one ffmpeg decode per track, plus a bucket download on prod). Store them next to the cover if that ever shows up in the load.
+- Crowd votes live in the in-memory session like requests and Up Next: a server restart (deploy) clears them. Persist sessions if that matters at a party.
 - Visual test: `npm run visual-test` (mobile, crowd, party screen, desktop queue) before and after UI work; local only, the baselines are made on macOS.

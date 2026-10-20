@@ -27,6 +27,9 @@ export interface RemoteSearchPage {
   total: number;
   /** The offset this page was fetched at. */
   offset: number;
+  /** The store is still indexing, so results may be incomplete
+   *  (pass-the-remote's `library.scanning`). Absent when it doesn't say. */
+  indexing?: boolean;
 }
 
 /** The bytes of a downloaded remote track plus how to name/serve them.

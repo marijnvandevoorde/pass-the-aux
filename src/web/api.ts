@@ -305,25 +305,52 @@ export const api = {
   },
 
   /** DJ poll: report what we've played, receive crowd adds since the
-   *  last poll. Best-effort — returns [] on any failure. */
+   *  last poll and the crowd's votes per track. Best-effort: no adds and
+   *  `votes: null` (unknown) on any failure. */
   async syncSession(
     id: string,
     played: string[],
     nowPlaying?: NowPlaying | null,
     /** The DJ's queue, next first, for the crowd's Up Next. */
     upNext?: SessionQueueItem[],
-  ): Promise<SessionQueueItem[]> {
+  ): Promise<{ pending: SessionQueueItem[]; votes: Record<string, number> | null }> {
     try {
       const res = await fetch("/api/session/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, played, nowPlaying, upNext }),
       });
-      if (!res.ok) return [];
-      const body = (await res.json()) as { pending?: SessionQueueItem[] };
-      return Array.isArray(body.pending) ? body.pending : [];
+      if (!res.ok) return { pending: [], votes: null };
+      const body = (await res.json()) as {
+        pending?: SessionQueueItem[];
+        votes?: Record<string, number>;
+      };
+      return {
+        pending: Array.isArray(body.pending) ? body.pending : [],
+        votes: body.votes && typeof body.votes === "object" ? body.votes : null,
+      };
     } catch {
-      return [];
+      return { pending: [], votes: null };
+    }
+  },
+
+  /** Crowd vote (`on`) or take-back on a queued track. Null on failure. */
+  async voteInSession(
+    id: string,
+    path: string,
+    guest: string,
+    on: boolean,
+  ): Promise<{ count: number; voted: boolean } | null> {
+    try {
+      const res = await fetch("/api/session/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, path, guest, on }),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as { count: number; voted: boolean };
+    } catch {
+      return null;
     }
   },
 
@@ -354,10 +381,12 @@ export const api = {
     }
   },
 
-  async getSession(id: string): Promise<SessionSnapshot | null> {
+  /** `guest`: the crowd guest's id, to get back their own votes. */
+  async getSession(id: string, guest?: string): Promise<SessionSnapshot | null> {
     try {
       const res = await fetch(
-        "/api/session?id=" + encodeURIComponent(id),
+        "/api/session?id=" + encodeURIComponent(id) +
+          (guest ? "&g=" + encodeURIComponent(guest) : ""),
       );
       if (!res.ok) return null;
       return (await res.json()) as SessionSnapshot;
@@ -442,4 +471,8 @@ export interface SessionSnapshot {
   upNext?: SessionQueueItem[] | null;
   /** Server clock when the snapshot was made (absent on old servers). */
   serverTime?: number;
+  /** Crowd votes per track path (absent on old servers). */
+  votes?: Record<string, number>;
+  /** The asking guest's own votes (when `g` was sent). */
+  myVotes?: string[];
 }

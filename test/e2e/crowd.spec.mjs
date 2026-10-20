@@ -70,21 +70,34 @@ test("crowd: requesting a track flips the button", async ({ page }) => {
   assert.ok(/SENT|QUEUED/.test(label), `request button flips to a pending state (got "${label}")`);
 });
 
-test("crowd: Up Next vote pill toggles", async ({ page }) => {
+test("crowd: a vote reaches the server, counts per track, survives a reload and can be taken back", async ({ page }) => {
   await page.setViewportSize(PHONE);
   const sid = await apiCreateSession();
   const tr = TRACKS[1]; // Nightcall
   await apiQueue(sid, { name: tr.title, path: tr.file, bpm: tr.bpm, by: "Theo" });
   await joinCrowd(page, sid, "Robin");
   await page.waitForSelector(".vote-pill");
-  const pill = await page.$(".vote-pill");
-  assert.equal(await pill.evaluate((el) => el.querySelector("span:last-child").textContent), "VOTE");
-  await pill.click();
-  await page.waitForTimeout(300);
-  const voted = await page.evaluate(() => document.querySelector(".vote-pill").classList.contains("voted"));
-  const label = await page.evaluate(() => document.querySelector(".vote-pill span:last-child").textContent);
-  assert.ok(voted, "vote pill becomes active");
-  assert.equal(label, "VOTED", "pill says it's voted (no made-up vote count)");
+  const pillText = () => page.evaluate(() => [...document.querySelectorAll(".vote-pill span")].map((x) => x.textContent).join(" "));
+  const serverVotes = async () => (await (await fetch(`${BASE_URL}/api/session?id=${sid}`)).json()).votes;
+  assert.equal(await pillText(), "VOTE");
+  await page.click(".vote-pill");
+  await page.waitForFunction(() => document.querySelector(".vote-pill .vp-count")?.textContent === "1");
+  assert.ok(await page.evaluate(() => document.querySelector(".vote-pill").classList.contains("voted")));
+  assert.equal(await pillText(), "VOTED 1");
+  assert.deepEqual(await serverVotes(), { [tr.file]: 1 });
+  // Another guest votes too: the count is everyone's.
+  await fetch(`${BASE_URL}/api/session/vote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: sid, path: tr.file, guest: "otherguest1", on: true }),
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector(".vote-pill .vp-count")?.textContent === "2");
+  assert.equal(await pillText(), "VOTED 2", "the server remembers this guest's vote");
+  await page.click(".vote-pill");
+  await page.waitForFunction(() => !document.querySelector(".vote-pill").classList.contains("voted"));
+  assert.equal(await pillText(), "VOTE 1");
+  assert.deepEqual(await serverVotes(), { [tr.file]: 1 });
 });
 
 test("crowd: requested track is credited to the requester in Up Next", async ({ page }) => {

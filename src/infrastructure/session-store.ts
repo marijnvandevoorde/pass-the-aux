@@ -71,6 +71,18 @@ export interface SessionSnapshot {
   /** The DJ's queue as last reported, next first; null until a DJ client
    *  reports one (older clients), and the crowd shows `pending` then. */
   upNext: SessionQueueItem[] | null;
+  /** Crowd votes per track path (tracks with at least one vote). */
+  votes: Record<string, number>;
+}
+
+/** Most tracks with votes kept per session; the oldest drop off. */
+const MAX_VOTED_TRACKS = 500;
+/** Most guests counted per track. */
+const MAX_VOTES_PER_TRACK = 1000;
+
+/** A guest's anonymous id (random, kept on their phone): [a-z0-9], ≤ 32. */
+export function sanitizeGuestId(raw: unknown): string {
+  return typeof raw === "string" ? raw.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32) : "";
 }
 
 /** Most queue entries kept from one report. */
@@ -108,6 +120,8 @@ interface Entry {
   nowPlaying: NowPlaying | null;
   nowPlayingAt: number | null;
   upNext: SessionQueueItem[] | null;
+  /** track path → guest ids that voted for it. */
+  votes: Map<string, Set<string>>;
 }
 
 function newId(): string {
@@ -151,6 +165,7 @@ export class SessionStore {
         nowPlaying: null,
         nowPlayingAt: null,
         upNext: null,
+        votes: new Map(),
       });
       return wanted;
     }
@@ -165,6 +180,7 @@ export class SessionStore {
       nowPlaying: null,
       nowPlayingAt: null,
       upNext: null,
+      votes: new Map(),
     });
     return id;
   }
@@ -189,7 +205,54 @@ export class SessionStore {
       nowPlaying: e.nowPlaying,
       nowPlayingAt: e.nowPlayingAt,
       upNext: e.upNext ? [...e.upNext] : null,
+      votes: this.voteCounts(id),
     };
+  }
+
+  /** Votes per track path, for the DJ's queue and the crowd's Up Next. */
+  voteCounts(id: string): Record<string, number> {
+    const out: Record<string, number> = {};
+    const e = this.#m.get(id);
+    if (!e) return out;
+    for (const [path, guests] of e.votes) if (guests.size > 0) out[path] = guests.size;
+    return out;
+  }
+
+  /** The tracks a guest has voted for. */
+  votesOf(id: string, guest: string): string[] {
+    const e = this.#m.get(id);
+    if (!e || guest === "") return [];
+    return [...e.votes].filter(([, g]) => g.has(guest)).map(([path]) => path);
+  }
+
+  /** A guest votes for a track (`on`) or takes the vote back. One vote
+   *  per guest per track, so repeating either is harmless. */
+  vote(
+    id: string,
+    path: string,
+    guest: string,
+    on: boolean,
+  ): { count: number; voted: boolean } | "not-found" | "invalid" {
+    const e = this.#m.get(id);
+    if (!e) return "not-found";
+    if (path === "" || path.length > 1000 || guest === "") return "invalid";
+    let guests = e.votes.get(path);
+    if (on) {
+      if (!guests) {
+        guests = new Set();
+        e.votes.set(path, guests);
+        if (e.votes.size > MAX_VOTED_TRACKS) {
+          const oldest = e.votes.keys().next().value;
+          if (oldest !== undefined) e.votes.delete(oldest);
+        }
+      }
+      if (guests.size < MAX_VOTES_PER_TRACK) guests.add(guest);
+    } else if (guests) {
+      guests.delete(guest);
+      if (guests.size === 0) e.votes.delete(path);
+    }
+    const now = e.votes.get(path);
+    return { count: now?.size ?? 0, voted: now?.has(guest) ?? false };
   }
 
   setUpNext(id: string, items: SessionQueueItem[]): void {
