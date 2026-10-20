@@ -4,6 +4,7 @@ import type { BeatGridResponse, LibraryResponse, RemoteTrackInfo } from "./types
 import { applyKeyVars, keyHue, keyRelation, bpmDeltaLabel, TONE_VARS } from "./key-utils.js";
 import { createWaveform } from "./waveform.js";
 import { qrMatrix } from "./qr.js";
+import { autoMixDue, nextBarAfter, planMixOut, type MixOutPlan } from "./mobile-mix.js";
 import { byId, esc, fmtTime as fmt, toast, makeCoverLoader, keyBpmMeta, requesterChip, metaParts } from "./dom-utils.js";
 
 type LibTrack = LibraryResponse["tracks"][number];
@@ -192,10 +193,12 @@ const npWave = createWaveform(npWaveEl, { seekable: true, onSeek: seekActive });
 function handleTimeUpdate(deck: HTMLAudioElement): void {
   if (deck !== activeDeck || !deck.duration || !isFinite(deck.duration)) return;
   // Crossfade into the next queued track as this one ends, instead of a
-  // hard cut on "ended".
-  if (!deck.paused && !fading && !skipping && queue.length > 0 &&
-      deck.duration - deck.currentTime <= sessionFadeMs / 1000 + 0.75) {
-    void doFadeToNext(true);
+  // hard cut on "ended": at the mix-out point when the grid has one,
+  // else just before the end.
+  if (!deck.paused && !fading && !skipping && queue.length > 0) {
+    const fadeSec = sessionFadeMs / 1000;
+    const plan = planMixOut(currentBeatGrid, deck.duration, deck.currentTime, fadeSec);
+    if (autoMixDue(plan, deck.duration, deck.currentTime, fadeSec)) void doFadeToNext(true, plan);
   }
   const ratio = deck.currentTime / deck.duration;
   heroWave.setProgress(ratio);
@@ -254,14 +257,14 @@ npPlayBtnEl.addEventListener("click", togglePlay);
 // ── Beat-matched fade-to-next ──
 /** `auto`: started by the end of the track, not a tap — no confirmation
  *  ring (its rAF animation never finishes on a locked phone). */
-async function doFadeToNext(auto = false): Promise<void> {
+async function doFadeToNext(auto = false, mixOut: MixOutPlan | null = null): Promise<void> {
   if (fading || skipping) return;
   if (queue.length === 0) {
     if (!auto) showToast("Nothing queued to fade into");
     return;
   }
   if (!auto) await playSkipRing();
-  await fadeIntoNext();
+  await fadeIntoNext(mixOut);
 }
 
 async function playSkipRing(): Promise<void> {
@@ -298,7 +301,9 @@ async function playSkipRing(): Promise<void> {
   skipping = false;
 }
 
-async function fadeIntoNext(): Promise<void> {
+/** `mixOut`: start the incoming track at the outgoing one's mix-out
+ *  point, with the fade fitted to its outro; else at the next bar. */
+async function fadeIntoNext(mixOut: MixOutPlan | null = null): Promise<void> {
   if (fading) return;
 
   // Claim the next track now: the queue can change during the wait and
@@ -309,20 +314,17 @@ async function fadeIntoNext(): Promise<void> {
   if (!next) { fading = false; return; }
   renderQueue();
 
-  // Beat grid: the next bar boundary on the outgoing track, if there's
-  // room for the full fade after it.
-  let barAt: number | null = null;
-  if (currentBeatGrid && activeDeck.duration && isFinite(activeDeck.duration)) {
-    const { beats, downbeatPhase } = currentBeatGrid;
+  // Beat grid: the mix-out point, or the next bar boundary on the
+  // outgoing track if there's room for the full fade after it. Bars come
+  // from the grid's per-bar downbeats when it has them.
+  let barAt: number | null = mixOut?.startSec ?? null;
+  if (barAt === null && currentBeatGrid && activeDeck.duration && isFinite(activeDeck.duration)) {
     const now = activeDeck.currentTime;
     const remain = activeDeck.duration - now;
-    for (let i = 0; i < beats.length; i++) {
-      const beat = beats[i] ?? 0;
-      if (beat > now + 0.05 && i % 4 === downbeatPhase) {
-        const wait = beat - now;
-        if (wait > 0 && wait < Math.min(8, remain - sessionFadeMs / 1000 - 0.5)) barAt = beat;
-        break;
-      }
+    const beat = nextBarAfter(currentBeatGrid, now + 0.05);
+    if (beat !== null) {
+      const wait = beat - now;
+      if (wait > 0 && wait < Math.min(8, remain - sessionFadeMs / 1000 - 0.5)) barAt = beat;
     }
   }
 
@@ -352,7 +354,7 @@ async function fadeIntoNext(): Promise<void> {
   }
   await inDeck.play().catch(() => {});
 
-  const fadeSec = Math.max(0.1, sessionFadeMs / 1000);
+  const fadeSec = Math.max(0.1, mixOut?.fadeSec ?? sessionFadeMs / 1000);
   await Promise.all([
     fadeDeck(outDeck, 0, fadeSec),
     fadeDeck(inDeck, 1, fadeSec),
