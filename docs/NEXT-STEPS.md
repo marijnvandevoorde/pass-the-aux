@@ -11,5 +11,4 @@ Sprint detail lives on the Notion scrum board (see CLAUDE.md).
 
 - Party sessions stored (#60, live as `:6c0070b` since 2026-10-20; votes are stored and served on prod): on the next deploy, vote as a guest first, then check the DJ still sees `▲ n` and the guest VOTED.
 - Visual test: `npm run visual-test` (mobile, crowd, party screen, desktop queue) before and after UI work; local only, the baselines are made on macOS.
-- Soundboard: after the next deploy, listen to the CC0 airhorn, siren and Inception pads (levels were matched to the old files by measurement only).
-- Siren FX and XY `alarm` are silent: `app.ts` asks for the pad "Air-Raid Siren", which doesn't exist, so `emergency-siren.mp3` is never loaded. Wire it as the alarm bed or delete the file.
+- Soundboard: listen on prod to the CC0 airhorn, siren and Inception pads and the Siren FX (wired in #65; levels were matched by measurement only).
