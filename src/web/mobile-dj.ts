@@ -191,6 +191,12 @@ const npWave = createWaveform(npWaveEl, { seekable: true, onSeek: seekActive });
 // ── Audio events (both decks) ──
 function handleTimeUpdate(deck: HTMLAudioElement): void {
   if (deck !== activeDeck || !deck.duration || !isFinite(deck.duration)) return;
+  // Crossfade into the next queued track as this one ends, instead of a
+  // hard cut on "ended".
+  if (!deck.paused && !fading && !skipping && queue.length > 0 &&
+      deck.duration - deck.currentTime <= sessionFadeMs / 1000 + 0.75) {
+    void doFadeToNext(true);
+  }
   const ratio = deck.currentTime / deck.duration;
   heroWave.setProgress(ratio);
   npWave.setProgress(ratio);
@@ -246,12 +252,19 @@ playBtn.addEventListener("click", togglePlay);
 npPlayBtnEl.addEventListener("click", togglePlay);
 
 // ── Beat-matched fade-to-next ──
-async function doFadeToNext(): Promise<void> {
+/** `auto`: started by the end of the track, not a tap — no confirmation
+ *  ring (its rAF animation never finishes on a locked phone). */
+async function doFadeToNext(auto = false): Promise<void> {
   if (fading || skipping) return;
   if (queue.length === 0) {
-    showToast("Nothing queued to fade into");
+    if (!auto) showToast("Nothing queued to fade into");
     return;
   }
+  if (!auto) await playSkipRing();
+  await fadeIntoNext();
+}
+
+async function playSkipRing(): Promise<void> {
   skipping = true;
 
   // Ring animation (confirmation)
@@ -283,25 +296,10 @@ async function doFadeToNext(): Promise<void> {
   skipWrapEl.classList.remove("spinning");
   npSkipWrapEl.classList.remove("spinning");
   skipping = false;
+}
 
-  // Beat-grid: wait until the next bar boundary before starting the fade
-  let waitMs = 0;
-  if (currentBeatGrid && activeDeck.duration && isFinite(activeDeck.duration)) {
-    const { beats, downbeatPhase } = currentBeatGrid;
-    const now = activeDeck.currentTime;
-    const remain = activeDeck.duration - now;
-    for (let i = 0; i < beats.length; i++) {
-      const beat = beats[i] ?? 0;
-      if (beat > now + 0.05 && i % 4 === downbeatPhase) {
-        const wait = beat - now;
-        // Only hold if there's room for the full fade after the bar
-        if (wait > 0 && wait < remain - sessionFadeMs / 1000 - 0.5) {
-          waitMs = Math.min(wait * 1000, 8000); // cap at 8s (2 bars at 60bpm)
-        }
-        break;
-      }
-    }
-  }
+async function fadeIntoNext(): Promise<void> {
+  if (fading) return;
 
   // Claim the next track now: the queue can change during the wait and
   // the fade (crowd adds, removals), and shifting at the end would drop
@@ -311,14 +309,47 @@ async function doFadeToNext(): Promise<void> {
   if (!next) { fading = false; return; }
   renderQueue();
 
-  if (waitMs > 0) await new Promise<void>((r) => setTimeout(r, waitMs));
+  // Beat grid: the next bar boundary on the outgoing track, if there's
+  // room for the full fade after it.
+  let barAt: number | null = null;
+  if (currentBeatGrid && activeDeck.duration && isFinite(activeDeck.duration)) {
+    const { beats, downbeatPhase } = currentBeatGrid;
+    const now = activeDeck.currentTime;
+    const remain = activeDeck.duration - now;
+    for (let i = 0; i < beats.length; i++) {
+      const beat = beats[i] ?? 0;
+      if (beat > now + 0.05 && i % 4 === downbeatPhase) {
+        const wait = beat - now;
+        if (wait > 0 && wait < Math.min(8, remain - sessionFadeMs / 1000 - 0.5)) barAt = beat;
+        break;
+      }
+    }
+  }
 
-  // Load next into the inactive deck, start it silent, then crossfade gains.
+  // Load the incoming track (silent) first, so the wait below lands on
+  // the bar. Start it at its mix-in point (pass-the-beat's first solid
+  // downbeat) rather than at 0:00, often silence or a long intro.
   const outDeck = activeDeck;
   const inDeck = inactiveDeck;
   resumeAudio();
+  const gridP = api.getBeatGrid(next.path).catch(() => null);
   inDeck.src = api.audioUrl(next.path);
   setDeckLevel(inDeck, 0);
+  const grid = await gridP;
+  const mixIn = grid?.firstSolidCueSec ?? null;
+  await new Promise<void>((r) => {
+    if (inDeck.readyState >= 1) return r();
+    const t = setTimeout(r, 3000);
+    inDeck.addEventListener("loadedmetadata", () => { clearTimeout(t); r(); }, { once: true });
+  });
+  if (mixIn !== null && mixIn > 0 && Number.isFinite(inDeck.duration) && mixIn < inDeck.duration - 10) {
+    inDeck.currentTime = mixIn;
+  }
+
+  if (barAt !== null) {
+    const waitMs = (barAt - outDeck.currentTime) * 1000;
+    if (waitMs > 0) await new Promise<void>((r) => setTimeout(r, waitMs));
+  }
   await inDeck.play().catch(() => {});
 
   const fadeSec = Math.max(0.1, sessionFadeMs / 1000);
