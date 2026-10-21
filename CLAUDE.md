@@ -205,6 +205,10 @@ domain ports — keep ports narrow so this stays easy. The browser layer
 (`src/web/`, Web Audio) is not unit-tested headlessly; cover logic in the
 server layers instead.
 
+UI work: run `npm run visual-test` (pixel diff of mobile, crowd, party
+screen and desktop queue) before and after; `npm run visual-update` takes new
+baselines. Local only: the baselines are made on macOS.
+
 ## Project tracking — Notion
 
 Sprint/state is tracked on the **Pass the Aux — Scrum Board** Notion
