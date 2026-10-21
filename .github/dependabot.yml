@@ -21,6 +21,8 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    cooldown:
+      default-days: 3
 
   # Base images in the Dockerfile at the repo root.
   - package-ecosystem: "docker"
@@ -35,6 +37,8 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    cooldown:
+      default-days: 3
 
   # Images pinned in the compose files at the repo root (the dev MySQL).
   - package-ecosystem: "docker-compose"
@@ -54,6 +58,8 @@ updates:
       # still offers 9.x bumps, which would be a step back. 26.x updates keep flowing.
       - dependency-name: "mysql"
         versions: [">= 9.0, < 26.0"]
+    cooldown:
+      default-days: 3
 
   # Actions used by the workflows in .github/workflows/.
   # Grouped too: action minor/patch bumps are routine and should land on their own.
@@ -69,3 +75,5 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    cooldown:
+      default-days: 3
