@@ -1,5 +1,6 @@
 # Build stage: compile the browser bundle (src/web -> public/js).
-FROM node:26-alpine AS build
+# Both stages pinned to Node 26.12.1, the 2026-10-21 security release (CVE-2026-106069 and others).
+FROM node:26.12.1-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,7 +11,7 @@ RUN npm run build
 # Runtime stage: the server runs TypeScript directly via Node's native
 # type stripping. The only runtime dep is mysql2 (STORAGE_DRIVER=mysql);
 # ffmpeg is the system tool used for server-side audio analysis.
-FROM node:26-alpine AS runtime
+FROM node:26.12.1-alpine AS runtime
 WORKDIR /app
 # Build stamp — pass `--build-arg APP_VERSION=$(git rev-parse --short HEAD)`
 # (the compose file does this) so the image carries the SHA it was
