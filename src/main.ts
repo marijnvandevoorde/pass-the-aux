@@ -41,6 +41,7 @@ import { BuildBeatGrids } from "./application/build-beat-grids.ts";
 import { GetBeatGrid } from "./application/get-beat-grid.ts";
 import { GridDemand, PrioritizeBeatGrids } from "./application/grid-demand.ts";
 import { GetWaveform } from "./application/get-waveform.ts";
+import { LibrarySweep } from "./application/library-sweep.ts";
 import { FfmpegWaveformSource } from "./infrastructure/ffmpeg-waveform-source.ts";
 import type { WaveformRepository } from "./domain/ports/waveform-repository.ts";
 import { SqliteWaveformRepository } from "./infrastructure/sqlite-waveform-repository.ts";
@@ -305,45 +306,27 @@ export function createApp(
             }
           }
         } while (laneAgain);
+      } catch (err) {
+        // Fired from timers and events: must never reject.
+        console.error(`wanted-grid lane failed: ${(err as Error).message}`);
       } finally {
         laneBusy = false;
       }
     };
-    let sweeping = false;
-    let pending = false;
-    const sweepAll = async (): Promise<void> => {
-      // Coalesce instead of drop: a change arriving mid-sweep must not
-      // be lost. Sweeps are long now (enrich + ffmpeg per user), so a
-      // plain `if (sweeping) return` silently discarded files dropped
-      // in while a pass was running — the "not triggering often" bug.
-      if (sweeping) {
-        pending = true;
-        return;
-      }
-      sweeping = true;
-      try {
-        do {
-          pending = false;
-          const real = await users.allIds();
-          const ids = real.length > 0 ? real : [""];
-          for (const uid of ids) {
-            try {
-              const uc = useCasesFor(uid);
-              await uc.enrichLibrary.execute(); // tags/cover/AcousticBrainz
-              // A wanted track that only now has its library row (a crowd
-              // import) can be gridded by the lane right away.
-              void runWantedLane();
-              await uc.analyzeLibrary.execute(); // ffmpeg+DSP bpm/key/energy
-              await uc.buildBeatGrids.execute(); // phase grid
-            } catch {
-              /* per-user best-effort — next sweep retries */
-            }
-          }
-        } while (pending); // a change landed during the pass — re-run
-      } finally {
-        sweeping = false;
-      }
-    };
+    // Never rejects (a timer must not crash the process on a DB outage).
+    const librarySweep = new LibrarySweep({
+      userIds: () => users.allIds(),
+      sweepUser: async (uid) => {
+        const uc = useCasesFor(uid);
+        await uc.enrichLibrary.execute(); // tags/cover/AcousticBrainz
+        // A wanted track that only now has its library row (a crowd
+        // import) can be gridded by the lane right away.
+        void runWantedLane();
+        await uc.analyzeLibrary.execute(); // ffmpeg+DSP bpm/key/energy
+        await uc.buildBeatGrids.execute(); // phase grid
+      },
+    });
+    const sweepAll = (): Promise<void> => librarySweep.run();
     let sweepTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleSweep = (): void => {
       clearTimeout(sweepTimer);

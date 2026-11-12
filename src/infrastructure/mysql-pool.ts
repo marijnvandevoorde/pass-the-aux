@@ -153,7 +153,8 @@ const SCHEMA = [
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
-// Memoised per pool so concurrent first requests bootstrap once.
+// Memoised per pool so concurrent first requests bootstrap once
+// (until it fails: see below).
 const ready = new WeakMap<Db, Promise<void>>();
 
 export function ensureSchema(pool: Db): Promise<void> {
@@ -179,6 +180,12 @@ export function ensureSchema(pool: Db): Promise<void> {
       );
       await addColumnIfMissing(pool, "beat_grids", "bars_blob", "MEDIUMBLOB NULL");
     })();
+    // A failed bootstrap (database down) must not stay memoised, or every
+    // query keeps failing after the database is back. Forget it so the
+    // next call tries again.
+    p.catch(() => {
+      if (ready.get(pool) === p) ready.delete(pool);
+    });
     ready.set(pool, p);
   }
   return p;
