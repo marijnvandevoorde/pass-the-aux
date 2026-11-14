@@ -2,7 +2,9 @@ name: Dependabot auto-merge
 
 # Merges Dependabot PRs for minor and patch version updates once every other
 # check on the PR has finished and passed. Major updates are left for manual
-# review.
+# review. Only grouped PRs are merged: every minor/patch version update is
+# grouped and respects `cooldown` (3 days), while ungrouped ones are security
+# updates, which skip `cooldown` and so wait for the hygiene round.
 #
 # A direct merge is used because the GitHub auto-merge queue is not available
 # on private repos without a paid plan; this job waits for sibling checks
@@ -29,8 +31,9 @@ jobs:
 
       - name: Wait for checks, then merge minor and patch updates
         if: |
+          steps.metadata.outputs.dependency-group != '' && (
           steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-patch'
+          steps.metadata.outputs.update-type == 'version-update:semver-patch')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
