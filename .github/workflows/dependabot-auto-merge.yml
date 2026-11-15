@@ -1,8 +1,10 @@
 name: Dependabot auto-merge
 
 # Merges Dependabot PRs for minor and patch version updates once every other
-# check on the PR has finished and passed. Major updates are left for manual
-# review. Only grouped PRs are merged: every minor/patch version update is
+# check on the PR has finished and passed. Major updates of a *direct*
+# dependency are left for manual review; a major that only moves an indirect
+# (lockfile-only) dependency inside a minor/patch group does not block the
+# merge, because the checks exercise it like any other lockfile change. Only grouped PRs are merged: every minor/patch version update is
 # grouped and respects `cooldown` (3 days), while ungrouped ones are security
 # updates, which skip `cooldown` and so wait for the hygiene round.
 #
@@ -29,11 +31,23 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
+      - name: Classify by direct dependencies
+        id: classify
+        env:
+          DEPS: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+          # Majors block unless the dependency is explicitly "indirect" (lockfile-only); an unknown type counts as direct.
+          direct_major=$(echo "$DEPS" | jq '[.[] | select((.dependencyType // "") != "indirect") | select(.updateType == "version-update:semver-major")] | length')
+          direct=$(echo "$DEPS" | jq '[.[] | select((.dependencyType // "") != "indirect")] | length')
+          echo "Direct dependencies: $direct, of which major: $direct_major"
+          echo "$DEPS" | jq -r '.[] | "  \(.dependencyName) \(.prevVersion) -> \(.newVersion) (\(.dependencyType // "?"), \(.updateType // "?"))"'
+          if [ "$direct_major" -eq 0 ]; then echo "safe=true" >> "$GITHUB_OUTPUT"; else echo "safe=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Wait for checks, then merge minor and patch updates
         if: |
-          steps.metadata.outputs.dependency-group != '' && (
-          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-patch')
+          steps.metadata.outputs.dependency-group != '' &&
+          steps.classify.outputs.safe == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
