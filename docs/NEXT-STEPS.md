@@ -7,5 +7,5 @@ Prod runs `:8ede034` since 2026-11-12 (rollback `:4588066`).
 
 - Play a real set on prod: automix through 3+ transitions in a background tab (starts at the orange mix-out marker, tempo glides back after each), Fade to next on gridded tracks, mix-in cue on the lined-up track.
 - Soundboard: listen on prod to the CC0 airhorn, siren and Inception pads and the Siren FX (wired in #65; levels were matched by measurement only).
-- Party sessions (#60): vote as a guest first on prod, then check the DJ still sees `▲ n` and the guest VOTED after the restart.
+- Party sessions (#60): on the next deploy, vote as a guest first, then check the DJ still sees `▲ n` and the guest VOTED after the restart.
 - DB-outage fix (#73, live since 2026-11-12): check the logs show `library sweep: could not list users` instead of restarts during the next HeatWave maintenance.
