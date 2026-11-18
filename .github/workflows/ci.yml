@@ -4,6 +4,9 @@ name: CI
 # and the web build. This is the check that protects main.
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
 
 jobs:
