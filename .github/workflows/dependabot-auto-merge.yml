@@ -22,12 +22,13 @@ jobs:
   dependabot-auto-merge:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Only act on PRs opened by Dependabot.
-    if: github.actor == 'dependabot[bot]'
+    # Only act on PRs opened by Dependabot, on an event Dependabot triggered. The actor
+    # alone can be spoofed: it is whoever triggered the event, not who authored the PR.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
