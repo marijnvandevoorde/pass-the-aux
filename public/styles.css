@@ -1526,6 +1526,22 @@ select.r-q {
   font-variant-numeric: tabular-nums;
 }
 
+#queue-list .q-by {
+  display: inline-block;
+  max-width: 9em;
+  margin-right: 6px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 138, 61, 0.4);
+  background: rgba(255, 138, 61, 0.13);
+  color: #ff8a3d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 #queue-list .q-bpm {
   color: var(--accent);
   font-weight: 800;

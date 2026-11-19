@@ -42,6 +42,12 @@ export interface SessionState {
   /** Crossfader position, -1 (A) … 1 (B). Optional → old sessions
    *  restore to the centre. */
   crossfade?: number;
+  /** The party session was live (shared or automix), so a refresh
+   *  re-registers it even with automix off. Optional → old sessions. */
+  shared?: boolean;
+  /** Which guest requested which track: path → name. Optional → old
+   *  sessions have no credits. */
+  requests?: Record<string, string>;
 }
 
 /** The crossfader position to restore: the saved one, clamped to
