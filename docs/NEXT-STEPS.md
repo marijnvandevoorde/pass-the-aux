@@ -9,3 +9,5 @@ Prod runs `:8ede034` since 2026-11-12 (rollback `:4588066`).
 - Soundboard: listen on prod to the CC0 airhorn, siren and Inception pads and the Siren FX (wired in #65; levels were matched by measurement only).
 - Party sessions (#60): on the next deploy, vote as a guest first, then check the DJ still sees `▲ n` and the guest VOTED after the restart.
 - DB-outage fix (#73, live since 2026-11-12): check the logs show `library sweep: could not list users` instead of restarts during the next HeatWave maintenance.
+- Desktop crowd sync (#80): review and merge; after deploy, share a party with automix off, play by hand and request a track from the crowd page with a name (lands in the queue with the name, crowd shows Now Playing).
+- Product backlog from the 2026-11-20 pass is on the Notion board (fair request cap, crowd decides, request inbox, do-not-play list, shout-outs, recap, reactions).
