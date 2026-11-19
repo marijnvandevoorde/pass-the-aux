@@ -14,6 +14,7 @@ import { TempoGlide } from "./tempo-glide.js";
 import { api } from "./api.js";
 import type { SessionQueueItem } from "./api.js";
 import { SessionHistory } from "./session-history.js";
+import { CrowdCredits, creditedUpNext } from "./crowd-credits.js";
 import { pickNext, type FeatureTrack } from "./auto-select.js";
 import { energyLabel } from "./energy-label.js";
 import { XyPad } from "./xy-pad.js";
@@ -229,6 +230,8 @@ async function ensureCtxRunning(): Promise<void> {
 
 /** Tracks played/queued this session. */
 const history = new SessionHistory();
+/** Which guest requested which track, for the queue and the crowd page. */
+const credits = new CrowdCredits();
 /** Library table sort. */
 type SortField = "title" | "mood" | "bpm";
 let sortField: SortField = "title";
@@ -711,6 +714,14 @@ function votesBadge(path: string | null | undefined): string {
   return `<span class="q-votes" title="${label}" aria-label="${label}">▲ ${n}</span>`;
 }
 
+/** The guest who requested a queue row, or "" for the DJ's own picks. */
+function requesterBadge(path: string | null | undefined): string {
+  const by = credits.of(path);
+  if (!by) return "";
+  const label = `Requested by ${esc(by)}`;
+  return `<span class="q-by" title="${label}" aria-label="${label}">${esc(by)}</span>`;
+}
+
 function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
   // Dropped local files have no path; the rest get their grids first.
   api.wantGrids(
@@ -755,7 +766,7 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
     li.innerHTML = `
       <span class="q-name"><span class="q-tag">NEXT · DECK ${next.deck}${
         next.loading ? " · loading…" : mix.fading ? " · mixing in" : ""
-      }</span>${votesBadge(next.track.path)}${esc(next.track.name)}</span>
+      }</span>${votesBadge(next.track.path)}${requesterBadge(next.track.path)}${esc(next.track.name)}</span>
       <span class="q-bpm ${next.track.bpm ? "" : "missing"}">${next.track.bpm ? Math.round(next.track.bpm) : "—"}</span>
       <span class="q-actions">
         <button data-q="rm" title="Drop it; the next queued track takes its place" aria-label="Drop the lined-up track">✕</button>
@@ -770,7 +781,7 @@ function renderQueue(queue: readonly TrackInfo[], mix: Automix): void {
     const li = document.createElement("li");
     li.draggable = true;
     li.innerHTML = `
-      <span class="q-name" title="${esc(t.name)}">${votesBadge(t.path)}${esc(t.name)}</span>
+      <span class="q-name" title="${esc(t.name)}">${votesBadge(t.path)}${requesterBadge(t.path)}${esc(t.name)}</span>
       <span class="q-bpm ${t.bpm ? "" : "missing"}">${t.bpm ? Math.round(t.bpm) : "—"}</span>
       <span class="q-actions">
         <button data-q="rm" title="remove">✕</button>
@@ -2425,9 +2436,7 @@ function deckSnapshot(d: Deck): SessionDeck | null {
  *  idle deck, then the queue. */
 function crowdUpNext(): SessionQueueItem[] {
   const lined = automix.nextUp?.track;
-  return [...(lined ? [lined] : []), ...automix.queue]
-    .filter((t): t is TrackInfo & { path: string } => !!t.path)
-    .map((t) => ({ name: t.name, path: t.path, bpm: t.bpm, by: null }));
+  return creditedUpNext([...(lined ? [lined] : []), ...automix.queue], credits);
 }
 
 function saveSession(): void {
@@ -2458,6 +2467,8 @@ function saveSession(): void {
       B: deckSnapshot(decks.B),
     },
     crossfade: Number(must<HTMLInputElement>("#xfader").value) || 0,
+    shared: sessionId !== null,
+    requests: credits.snapshot(),
   };
   try {
     localStorage.setItem(SESSION_KEY, serialize(state));
@@ -2517,6 +2528,7 @@ function restoreSession(): void {
   // Suspend auto-arm: re-enqueuing the saved queue must NOT pull its
   // head onto the decks before the saved decks are rehydrated.
   automix.setSuspended(true);
+  credits.restore(s.requests); // before the queue renders its rows
   for (const t of s.queue) {
     automix.enqueue({ name: t.name, path: t.path, bpm: t.bpm });
     history.record(t.path);
@@ -2524,10 +2536,11 @@ function restoreSession(): void {
   for (const id of s.played) history.record(id);
 
   // Restore the Automix toggle exactly as it was (ON stays ON) — no
-  // arming, no playback. If it was on, re-register the SAME session
-  // id (idempotent) so the crowd/QR keeps working after a refresh.
+  // arming, no playback. If it was on, or the party was shared, re-register
+  // the SAME session id (idempotent) so the crowd/QR keeps working after a
+  // refresh.
   automix.restoreOn(s.config.automix);
-  if (s.config.automix) void ensureSession();
+  if (s.config.automix || s.shared) void ensureSession();
 
   const libPaths = new Set(
     tracks.map((t) => t.path).filter((p): p is string => !!p),
@@ -2882,9 +2895,12 @@ function backgroundTick(): void {
   if (tnow - lastSessionSave < 3000) return;
   lastSessionSave = tnow;
   saveSession(); // persist config/queue/played/offset
-  if (!sessionId || !automix.on || crowdSyncInFlight) return;
+  // Talk to the party whenever one is live, automix or not: a DJ mixing
+  // by hand still gets the crowd's requests in the queue, and the crowd
+  // page still shows what's playing.
+  if (!sessionId || crowdSyncInFlight) return;
   // report what we've played, pull crowd adds, append them
-  // live to the automix queue. Also push the currently-playing
+  // live to the queue. Also push the currently-playing
   // track so the crowd page can show "Now Playing".
   const sid = sessionId;
   const playingDeck = decks.A.isPlaying ? decks.A : decks.B.isPlaying ? decks.B : null;
@@ -2894,7 +2910,7 @@ function backgroundTick(): void {
         artist: null,
         bpm: playingDeck.track.bpm,
         path: playingDeck.track.path,
-        by: null,
+        by: credits.of(playingDeck.track.path),
         positionSec: playingDeck.currentTime,
         durationSec: playingDeck.duration || null,
         playing: true,
@@ -2915,6 +2931,7 @@ function backgroundTick(): void {
       for (const t of pending) {
         if (history.has(t.path)) continue;
         if (automix.queue.some((q) => q.path === t.path)) continue;
+        credits.record(t.path, t.by);
         automix.enqueue({ name: t.name, path: t.path, bpm: t.bpm });
         history.record(t.path);
       }

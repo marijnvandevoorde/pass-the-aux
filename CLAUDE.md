@@ -131,6 +131,10 @@ rolling deploy stay in step. Votes and played tracks are rows keyed by
 a SHA-1 of the path, so two pods never undo each other. Sessions idle
 for 48 h are deleted (`sweep`, hourly). A failed write is logged and
 the party carries on from memory.
+The desktop DJ syncs with a live session (shared or automix) every 3 s,
+automix on or off, and keeps who requested what (`CrowdCredits`, stored
+with the local session) so the queue, Up Next and Now Playing credit the
+guest.
 
 ## Deploying
 
