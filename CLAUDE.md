@@ -112,7 +112,8 @@ store, repo `sptf`) on demand when `SPOTIFY_API_K8S_DEPLOYMENT` is set.
 and a call that finds it down waits `SPOTIFY_API_WAIT_SECONDS` before
 answering 503 "starting up, try again in a moment" (`RemoteStartingError`)
 while the start carries on. It goes back to zero after
-`SPOTIFY_API_IDLE_SECONDS` (default 900) without Spotify calls.
+`SPOTIFY_API_IDLE_SECONDS` (default 900; production sets 7200 in
+Oracle's `k8s/apps/tier2/stacks.py`) without Spotify calls.
 spotify-api keeps no state a restart would lose: a cold start just logs
 in to Spotify again.
 
