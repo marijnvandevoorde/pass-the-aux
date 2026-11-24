@@ -2,24 +2,51 @@ name: CI
 
 # Fast gate for every PR: typecheck, unit tests,
 # and the web build. This is the check that protects main.
+#
+# `unit` is required, so it runs on every PR. On a docs-only PR (only *.md
+# or docs/**) it skips its steps and passes; any other PR runs it in full.
+# No paths-ignore: a skipped workflow never reports `unit`, so the PR
+# could not merge.
 on:
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   unit:
     name: unit
     runs-on: ubuntu-latest
     steps:
+      - name: Docs-only change?
+        id: changes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')
+          code_files=$(grep -vE '(\.md$|^docs/)' <<<"$files" || true)
+          if [ -n "$code_files" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only PR: skipping the checks."
+          fi
       - uses: actions/checkout@v7
+        if: steps.changes.outputs.code != 'false'
       - uses: actions/setup-node@v7
+        if: steps.changes.outputs.code != 'false'
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - if: steps.changes.outputs.code != 'false'
+        run: npm ci
+      - if: steps.changes.outputs.code != 'false'
+        run: npm run typecheck
+      - if: steps.changes.outputs.code != 'false'
+        run: npm test
+      - if: steps.changes.outputs.code != 'false'
+        run: npm run build
