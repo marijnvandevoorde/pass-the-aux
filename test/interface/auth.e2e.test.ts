@@ -53,7 +53,9 @@ test("auth gate: register → confirm → access; public stays open", async () =
     assert.equal((await fetch(`${s.base}/crowd?s=x`)).status, 200);
     assert.equal((await fetch(`${s.base}/login`)).status, 200);
     assert.equal((await fetch(`${s.base}/privacy`)).status, 200);
-    assert.equal((await fetch(`${s.base}/consent.js`)).status, 200);
+    // No analytics script or cookie banner: Cloudflare Web Analytics is injected at the edge.
+    assert.equal((await fetch(`${s.base}/consent.js`)).status, 404);
+    assert.doesNotMatch(await (await fetch(`${s.base}/login`)).text(), /googletagmanager|consent\.js|data-consent-open/);
 
     // Register.
     const reg = await fetch(`${s.base}/api/auth/register`, {
