@@ -228,7 +228,6 @@ async function run() {
         if (!sessionStorage.getItem('visual-init')) {
           sessionStorage.setItem('visual-init', '1');
           localStorage.clear();
-          localStorage.setItem('sv-consent', 'denied');
           localStorage.setItem('pta-mobile-session', sid);
         }
       } catch { /* ignore */ }
@@ -271,7 +270,6 @@ async function run() {
     const guest = await newContext(browser, PHONE);
     await guest.addInitScript(() => {
       try {
-        localStorage.setItem('sv-consent', 'denied');
         localStorage.setItem('pta-guest-name', 'Robin');
       } catch { /* ignore */ }
     });
@@ -286,7 +284,6 @@ async function run() {
     const tv = await newContext(browser, { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
     await tv.addInitScript(() => {
       try {
-        localStorage.setItem('sv-consent', 'denied');
         localStorage.setItem('pta-guest-name', 'Party');
       } catch { /* ignore */ }
     });
@@ -305,7 +302,6 @@ async function run() {
         if (!sessionStorage.getItem('visual-init')) {
           sessionStorage.setItem('visual-init', '1');
           localStorage.clear();
-          localStorage.setItem('sv-consent', 'denied');
         }
       } catch { /* ignore */ }
     });
